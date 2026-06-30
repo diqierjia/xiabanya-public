@@ -1,0 +1,5 @@
+/* ===== 字体系统 ===== */
+@theme {
+  --font-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}

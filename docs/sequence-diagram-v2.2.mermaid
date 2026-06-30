@@ -1,0 +1,88 @@
+sequenceDiagram
+    participant MAIN as main/index.ts
+    participant DB as DatabaseService
+    participant IPC as ipc-handlers
+    participant TRACKER as ActivityTracker
+    participant WIN as BrowserWindow
+    participant TP as TodayPage
+    participant VS as useVisionStore
+    participant API as Preload API
+    participant RP as ReportPage
+    participant AI as ai.ts (SiliconFlow)
+    participant TL as TimelinePage
+
+    Note over MAIN,AI: === App 启动 → 自动启动 Tracker + Vision Auto ===
+
+    MAIN->>DB: getInstance(dbPath)
+    MAIN->>WIN: createWindow()
+    MAIN->>IPC: registerIpcHandlers(db, mainWindow)
+    
+    MAIN->>DB: getSetting('siliconflow_api_key')
+    alt API Key 存在
+        MAIN->>IPC: 触发 tracker:start
+        IPC->>TRACKER: new ActivityTracker()
+        TRACKER->>TRACKER: start(callback)
+        
+        MAIN->>DB: getSetting('screenshot_interval', '5')
+        MAIN->>IPC: 触发 vision:startAuto(interval)
+        IPC->>IPC: setInterval(visionCapture, interval * 60 * 1000)
+        
+        WIN-->>WIN: trackerRunning=true
+        WIN-->>WIN: visionAutoRunning=true
+    else 无 API Key
+        Note over MAIN: 静默跳过
+    end
+
+    Note over TP,AI: === TodayPage 加载 → Vision Results 摘要 ===
+
+    TP->>VS: fetchTodayResults()
+    VS->>API: vision.listByDate({start: today, end: today})
+    API->>IPC: invoke('vision:listByDate', query)
+    IPC->>DB: listVisionResultsByDate(start, end, 200)
+    DB-->>IPC: VisionResult[]
+    
+    Note over IPC: 计算 approx_duration_sec<br/>相邻结果的 created_at 差值<br/>最后一条: min(now - created_at, 1800s)
+    
+    IPC-->>API: VisionResultEnriched[]
+    API-->>VS: results
+    VS->>VS: computeDailySummary()
+    Note over VS: count / categories / mainCategory<br/>activeSpanSec / latest
+    
+    VS-->>TP: todayResults + summary
+    TP->>TP: render Hero (summary)
+    TP->>TP: render TrackerDot
+    TP->>TP: render VisionResultCard list
+
+    Note over TL,AI: === TimelinePage 浏览 → Vision Results 表格 ===
+
+    TL->>VS: fetchRangeResults(start, end)
+    VS->>API: vision.listByDate({start, end})
+    API->>IPC: invoke('vision:listByDate', query)
+    IPC->>DB: listVisionResultsByDate(start, end, 500)
+    DB-->>IPC: VisionResult[]
+    IPC-->>API: VisionResultEnriched[]
+    API-->>VS: results
+    VS-->>TL: rangeResults
+    TL->>TL: render table with approx_duration_sec column
+
+    Note over RP,AI: === ReportPage 生成报告 → 合并素材 ===
+
+    RP->>API: reports.generate({report_type, template, start_date, end_date})
+    API->>IPC: invoke('reports:generate', params)
+    
+    Note over IPC: v2.2 变更：双数据源
+    IPC->>DB: listVisionResultsByDate(start, end, 500)
+    DB-->>IPC: visionResults[]
+    IPC->>DB: listRecords({start, end, limit: 500})
+    DB-->>IPC: records[]
+    
+    IPC->>IPC: getSystemPrompt(template, reportType)
+    Note over IPC: vision_results 摘要为主<br/>records 作为补充上下文
+    
+    IPC->>AI: generateReport(apiKey, model, {visionResults, records}, ...)
+    AI-->>IPC: report content
+    IPC->>DB: createReport({...})
+    DB-->>IPC: report
+    IPC-->>API: Report
+    API-->>RP: report
+    RP->>RP: render markdown

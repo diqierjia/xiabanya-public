@@ -1,0 +1,53 @@
+{
+  "name": "xiabanya-electron",
+  "version": "2.3.1",
+  "description": "下班鸭 - 自动追踪屏幕活动、AI 截图识别、一键生成工作日报",
+  "license": "MIT",
+  "author": "diqier",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diqierjia/xiabanya-public.git"
+  },
+  "bugs": {
+    "url": "https://github.com/diqierjia/xiabanya-public/issues"
+  },
+  "homepage": "https://github.com/diqierjia/xiabanya-public#readme",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "active-win": "^8.1.0",
+    "better-sqlite3": "^11.10.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.460.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^9.0.0",
+    "recharts": "^2.15.0",
+    "remark-gfm": "^4.0.0",
+    "sonner": "^2.0.0",
+    "uuid": "^10.0.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^3.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

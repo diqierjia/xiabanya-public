@@ -1,0 +1,65 @@
+sequenceDiagram
+    participant User
+    participant Page as Page Component
+    participant Store as Zustand Store
+    participant API as XiabanyaApi
+    participant Toaster as sonner Toaster
+    participant DOM as DOM/Animation
+
+    Note over Page: === 页面加载流程 ===
+
+    Page->>Store: fetchTodayRecords()
+    Store->>Page: loading = true
+    Page->>Page: 渲染 Skeleton 骨架屏
+
+    Store->>API: api.records.list({start, end})
+    
+    alt 成功 & 有数据
+        API-->>Store: ActivityRecord[]
+        Store->>Page: loading = false, records = [...]
+        Page->>Page: 渲染数据列表
+    else 成功 & 空数据
+        API-->>Store: []
+        Store->>Page: loading = false, records = []
+        Page->>Page: 渲染 EmptyState 组件
+    else 失败
+        API-->>Store: Error
+        Store->>Page: loading = false, error = true
+        Page->>Page: 渲染 Error EmptyState + 重试按钮
+        Page->>Toaster: toast.error("加载失败")
+    end
+
+    Note over Page: === 用户操作流程 ===
+
+    User->>Page: 点击操作按钮
+    Page->>Page: 按钮进入 loading 状态
+    Page->>API: api.tracker.start()
+    
+    alt 成功
+        API-->>Page: void
+        Page->>Page: 按钮恢复 + 状态更新
+        Page->>Toaster: toast.success("操作成功")
+        Toaster-->>User: 绿色 Toast 滑入
+    else 失败
+        API-->>Page: Error
+        Page->>Page: 按钮恢复
+        Page->>Toaster: toast.error("操作失败")
+        Toaster-->>User: 红色 Toast 滑入
+    end
+
+    Note over Toaster: === Toast 生命周期 ===
+
+    Page->>Toaster: toast.success("操作成功")
+    Toaster->>Toaster: 生成唯一 id
+    Toaster->>DOM: 创建 toast 节点
+    DOM->>DOM: slide-in 动画 (250ms)
+    Note over DOM: 显示 3000ms (success)
+    DOM->>DOM: slide-out 动画 (200ms)
+    DOM->>Toaster: 移除节点
+
+    Note over Page: === 报告生成流程 ===
+    Page->>Toaster: toast.loading("正在生成报告...")
+    Page->>API: api.reports.generate(params)
+    API-->>Page: Report { content }
+    Page->>Toaster: toast.dismiss() + toast.success("报告已生成")
+    Page->>Page: 渲染 Markdown 预览

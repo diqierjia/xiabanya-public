@@ -1,0 +1,76 @@
+sequenceDiagram
+    participant UI as Renderer
+    participant IPC as ipc-handlers
+    participant T as ActivitySessionTracker
+    participant AW as active-win
+    participant CL as Classifier
+    participant DB as DatabaseService
+    participant SEG as SegmentService
+    participant SS as ScreenshotService
+    participant AI as AIService
+
+    Note over UI,AI: === 活动追踪 + 合并流程 ===
+
+    UI->>IPC: tracker:start
+    IPC->>T: new ActivitySessionTracker(window)
+    IPC->>T: start(callback)
+    
+    loop 每 5 秒
+        T->>AW: activeWin()
+        AW-->>T: { app, title }
+        T->>CL: classify(app, title) + userCategories
+        CL-->>T: { category, confidence }
+        
+        alt 当前无活动段
+            T->>T: startNewSegment(app, title, category)
+        else 同 app + 同 category
+            T->>T: updateCurrentSegment(title, end_at)
+        else 活动切换 (不同 app/category)
+            T->>T: closeCurrentSegment()
+            T->>SEG: upsertSegment(closedSegment)
+            SEG->>DB: INSERT/UPDATE activity_segments
+            T->>T: startNewSegment(app, title, category)
+        end
+        
+        T-->>IPC: callback(newRecord)
+        IPC->>UI: tracker:onEvent (record)
+    end
+
+    UI->>IPC: tracker:stop
+    IPC->>T: stop()
+    T->>T: closeCurrentSegment()
+    T->>SEG: upsertSegment(finalSegment)
+    SEG->>DB: INSERT activity_segments
+
+    Note over UI,AI: === AI识别 + 关联流程（活动切换时触发） ===
+
+    T->>T: closeCurrentSegment()
+    T->>SS: captureScreenshot(mainWindow)
+    SS-->>T: JPEG Buffer (base64)
+    
+    T->>IPC: 传递 segment + screenshot
+    IPC->>AI: classifyWithVision(apiKey, model, base64, app, title)
+    AI->>AI: enhanced prompt with few-shot + JSON schema
+    AI-->>IPC: { title, category, summary }
+    
+    IPC->>DB: addVisionResult({ segment_id, ... })
+    DB-->>IPC: visionResultId
+    
+    IPC->>UI: vision:onResult (visionResult with segment_id)
+
+    Note over UI,AI: === 日报生成管线 ===
+
+    UI->>IPC: reports:generate { type, template, start, end }
+    IPC->>DB: getSegments({ start, end, exclude_from_report: false })
+    DB-->>IPC: ActivitySegment[] (with vision annotations)
+    
+    IPC->>AI: generateReport(apiKey, model, segments, prompt)
+    Note over AI: 输入是合并后的 segments + vision annotations
+    Note over AI: 不是原始 5s 粒度的 records
+    AI-->>IPC: markdown content
+    
+    IPC->>DB: createReport(report)
+    DB-->>IPC: Report with id
+    
+    IPC-->>UI: Report { id, content }
+    UI->>UI: 展示校对编辑界面

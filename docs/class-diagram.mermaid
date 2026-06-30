@@ -1,0 +1,150 @@
+classDiagram
+    direction TB
+
+    class ActivityRecord {
+        +string id
+        +string title
+        +Category category
+        +string app
+        +string window_title
+        +string start_at
+        +string end_at
+        +number duration_seconds
+        +string segment_id
+        +string notes
+        +RecordSource source
+        +string created_at
+        +boolean is_achievement
+        +boolean exclude_from_report
+    }
+
+    class ActivitySegment {
+        +string id
+        +string title
+        +Category category
+        +string app
+        +string start_at
+        +string end_at
+        +number duration_seconds
+        +number record_count
+        +string[] record_ids
+        +string notes
+        +RecordSource source
+        +boolean is_achievement
+        +boolean exclude_from_report
+        +VisionResult[] vision_results
+        +string created_at
+    }
+
+    class UserCategory {
+        +string id
+        +string name
+        +string color
+        +string[] keywords
+        +string created_at
+    }
+
+    class VisionResult {
+        +string id
+        +string segment_id
+        +string record_id
+        +string title
+        +Category category
+        +string summary
+        +string raw_response
+        +string app
+        +string window_title
+        +string model
+        +string created_at
+    }
+
+    class Report {
+        +string id
+        +ReportType report_type
+        +string template
+        +string start_date
+        +string end_date
+        +string content
+        +string created_at
+    }
+
+    class AppSettings {
+        +string siliconflow_api_key
+        +string vision_model
+        +string report_model
+        +number screenshot_interval
+        +boolean keep_screenshots
+        +boolean auto_start_tracker
+        +boolean auto_vision_toggle
+        +boolean startup_with_windows
+    }
+
+    class ToastMessage {
+        +string id
+        +string type
+        +string title
+        +string message
+        +number duration
+    }
+
+    ActivitySegment "1" --> "*" ActivityRecord : contains
+    ActivitySegment "1" --> "*" VisionResult : has
+    UserCategory "0..*" --> "1" Category : extends
+    ActivitySegment --> Category : uses
+    ActivityRecord --> Category : uses
+
+    class ActivitySessionTracker {
+        -ActivitySegment currentSegment
+        -Date lastPollTime
+        +start(callback)
+        +stop()
+        +isRunning() boolean
+        +getCurrentSegment() ActivitySegment
+        -poll() Promise
+        -shouldMerge(app, category) boolean
+        -closeCurrentSegment() ActivitySegment
+        -startNewSegment(app, title, category) void
+    }
+
+    class SegmentService {
+        -DatabaseService db
+        +getSegments(query) ActivitySegment[]
+        +getSegment(id) ActivitySegment
+        +upsertSegment(segment) string
+        +mergeRecords(segmentId, recordIds) void
+        +getSegmentWithVision(id) ActivitySegment
+    }
+
+    class NotificationService {
+        +send(title, body) void
+        +sendDailySummary(summary) void
+        +isSupported() boolean
+    }
+
+    class DatabaseService {
+        -db Database
+        +getInstance() DatabaseService
+        +listRecords(query) ActivityRecord[]
+        +createRecord(dto, source) string
+        +updateRecord(id, dto) void
+        +deleteRecord(id) void
+        +listSegments(query) ActivitySegment[]
+        +getSegment(id) ActivitySegment
+        +upsertSegment(segment) string
+        +listUserCategories() UserCategory[]
+        +createUserCategory(uc) string
+        +updateUserCategory(id, uc) void
+        +deleteUserCategory(id) void
+        +addVisionResult(vr) string
+        +listVisionResults(limit) VisionResult[]
+        +listReports(query) Report[]
+        +createReport(report) string
+        +getSetting(key, defaultVal) string
+        +setSetting(key, value) void
+        +exportAll() object
+        +importAll(data) number
+        +migrateV2toV21() void
+    }
+
+    ActivitySessionTracker --> SegmentService : uses
+    SegmentService --> DatabaseService : uses

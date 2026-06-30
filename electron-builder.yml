@@ -1,0 +1,22 @@
+appId: com.xiabanya.app
+productName: 下班鸭
+electronDist: node_modules/electron/dist
+directories:
+  output: release
+win:
+  target: nsis
+  icon: src/renderer/assets/xiabanya-logo.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  include: build/installer.nsh
+npmRebuild: false
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: src/renderer/assets/xiabanya-logo.ico
+    to: assets/xiabanya-logo.ico
+  - from: assets/xiabanya-mascot.png
+    to: assets/xiabanya-mascot.png

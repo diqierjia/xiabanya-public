@@ -1,0 +1,164 @@
+classDiagram
+    direction TB
+
+    class VisionResult {
+        +string id
+        +string record_id
+        +string title
+        +Category category
+        +string summary
+        +string raw_response
+        +string app
+        +string window_title
+        +string model
+        +string created_at
+    }
+
+    class VisionResultEnriched {
+        +string id
+        +string title
+        +Category category
+        +string summary
+        +string app
+        +string created_at
+        +int approx_duration_sec
+    }
+
+    class VisionQuery {
+        +string start
+        +string end
+        +int limit
+    }
+
+    class VisionDailySummary {
+        +int count
+        +Category mainCategory
+        +VisionResult latest
+        +int activeSpanSec
+        +Map~Category,int~ categories
+    }
+
+    class ActivityRecord {
+        +string id
+        +string title
+        +Category category
+        +string app
+        +string window_title
+        +string start_at
+        +string end_at
+        +string notes
+        +RecordSource source
+        +string created_at
+        +bool is_achievement
+        +bool exclude_from_report
+    }
+
+    class Report {
+        +string id
+        +ReportType report_type
+        +string template
+        +string start_date
+        +string end_date
+        +string content
+        +string created_at
+    }
+
+    class DatabaseService {
+        +listVisionResults(limit) VisionResult[]
+        +listVisionResultsByDate(start, end, limit) VisionResult[]
+        +addVisionResult(vr) string
+        +deleteVisionResult(id) void
+        +listRecords(query) ActivityRecord[]
+        +listReports(query) Report[]
+        +createReport(report) string
+        +getSetting(key, defaultVal) string
+    }
+
+    class useVisionStore {
+        -VisionResult[] todayResults
+        -VisionResult[] rangeResults
+        -bool loading
+        -bool error
+        +fetchTodayResults() void
+        +fetchRangeResults(start, end) void
+        +computeDailySummary() VisionDailySummary
+    }
+
+    class useRecordsStore {
+        -ActivityRecord[] todayRecords
+        -ActivityRecord[] records
+        -bool loading
+        -bool error
+        +fetchTodayRecords() void
+        +fetchRecords(query) void
+    }
+
+    class useAppStore {
+        -bool trackerRunning
+        -bool visionAutoRunning
+        -PageKey currentPage
+        +setTrackerRunning(r) void
+        +setVisionAutoRunning(r) void
+        +setPage(p) void
+    }
+
+    class TodayPage {
+        +renderHero() JSX
+        +renderTrackerDot() JSX
+        +renderVisionCards() JSX
+    }
+
+    class TimelinePage {
+        +renderTable() JSX
+        +renderBatchActions() JSX
+    }
+
+    class ReportPage {
+        +renderMaterialPreview() JSX
+        +renderGenerate() JSX
+        +renderResult() JSX
+    }
+
+    class AppsPage {
+        +renderBarChart() JSX
+        +renderPieChart() JSX
+        +renderTable() JSX
+    }
+
+    class VisionResultCard {
+        +VisionResult result
+        +string variant
+        +renderCompact() JSX
+        +renderFull() JSX
+    }
+
+    class TrackerDot {
+        +bool running
+        +onToggle callback
+        +renderDot() JSX
+    }
+
+    DatabaseService ..> VisionResult : stores
+    DatabaseService ..> ActivityRecord : stores
+    DatabaseService ..> Report : stores
+
+    VisionResultEnriched --|> VisionResult : extends
+
+    useVisionStore --> DatabaseService : queries via IPC
+    useRecordsStore --> DatabaseService : queries via IPC
+
+    VisionQuery ..> VisionResult : filters
+    VisionDailySummary ..> VisionResult : computed from
+
+    TodayPage --> useVisionStore : reads
+    TodayPage --> useAppStore : reads
+    TodayPage --> VisionResultCard : renders
+    TodayPage --> TrackerDot : renders
+
+    TimelinePage --> useVisionStore : reads
+    TimelinePage --> VisionResultCard : renders
+
+    ReportPage --> useVisionStore : reads for preview
+    ReportPage --> useRecordsStore : reads for preview
+
+    AppsPage --> useRecordsStore : reads

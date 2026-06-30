@@ -1,0 +1,196 @@
+classDiagram
+    direction TB
+
+    class ButtonProps {
+        +ButtonVariant variant = "primary"
+        +ButtonSize size = "md"
+        +boolean disabled = false
+        +boolean loading = false
+        +ReactNode children
+        +ElementType icon
+        +string className
+        +void onClick()
+        +string type = "button"
+    }
+
+    class ButtonVariant {
+        <<enumeration>>
+        primary
+        secondary
+        ghost
+        danger
+        success
+    }
+
+    class ButtonSize {
+        <<enumeration>>
+        sm
+        md
+        lg
+    }
+
+    class InputProps {
+        +string label
+        +string hint
+        +string error
+        +boolean disabled = false
+        +string placeholder
+        +string value
+        +void onChange()
+        +string className
+        +string type = "text"
+    }
+
+    class CardProps {
+        +CardVariant variant = "default"
+        +ReactNode children
+        +string className
+        +void onClick()
+    }
+
+    class CardHeader {
+        +string className
+        +ReactNode children
+    }
+
+    class CardTitle {
+        +string className
+        +ReactNode children
+    }
+
+    class CardContent {
+        +string className
+        +ReactNode children
+    }
+
+    class CardVariant {
+        <<enumeration>>
+        default
+        elevated
+    }
+
+    class BadgeProps {
+        +string category
+        +BadgeSize size = "md"
+        +string color
+        +string className
+    }
+
+    class BadgeSize {
+        <<enumeration>>
+        sm
+        md
+    }
+
+    class SkeletonProps {
+        +SkeletonVariant variant = "text"
+        +string className
+    }
+
+    class SkeletonVariant {
+        <<enumeration>>
+        text
+        card
+        circle
+        rect
+    }
+
+    class EmptyStateProps {
+        +ElementType icon
+        +string title
+        +string description
+        +string actionLabel
+        +void onAction()
+        +string className
+    }
+
+    class ToastAPI {
+        +success(msg, desc) void
+        +error(msg, desc) void
+        +info(msg, desc) void
+        +loading(msg) string
+        +dismiss(id) void
+    }
+
+    class XiabanyaApi {
+        +RecordsAPI records
+        +ReportsAPI reports
+        +SettingsAPI settings
+        +TrackerAPI tracker
+        +VisionAPI vision
+        +exportJson() Promise
+        +importJson(data) Promise
+        +clearData() Promise
+    }
+
+    class AppState {
+        +PageKey currentPage
+        +boolean trackerRunning
+        +boolean sidebarCollapsed
+        +boolean notificationEnabled
+        +setPage(page) void
+        +setTrackerRunning(running) void
+        +toggleSidebar() void
+        +setNotificationEnabled(enabled) void
+    }
+
+    class RecordsState {
+        +ActivityRecord[] records
+        +ActivityRecord[] todayRecords
+        +boolean loading
+        +fetchRecords(query) Promise
+        +fetchTodayRecords() Promise
+        +addRecord(dto) Promise
+        +deleteRecord(id) Promise
+    }
+
+    class ReportsState {
+        +Report[] reports
+        +boolean loading
+        +boolean generating
+        +fetchReports(query) Promise
+        +generate(params) Promise
+        +deleteReport(id) Promise
+    }
+
+    class SettingsState {
+        +AppSettings settings
+        +boolean loading
+        +fetchSettings() Promise
+        +setSetting(key, value) Promise
+    }
+
+    class PageKey {
+        <<enumeration>>
+        today
+        report
+        timeline
+        heatmap
+        apps
+        history
+        settings
+    }
+
+    class DesignTokens {
+        <<css>>
+        +colors.css (brand 9 steps, semantic, gray 9 steps)
+        +typography.css (font families)
+        +spacing.css (radius, shadows, animations)
+    }
+
+    ButtonProps --> ButtonVariant : uses
+    ButtonProps --> ButtonSize : uses
+    ButtonProps --> ToastAPI : triggers
+    CardProps --> CardVariant : uses
+    CardProps --> CardHeader : contains
+    CardProps --> CardTitle : contains
+    CardProps --> CardContent : contains
+    BadgeProps --> BadgeSize : uses
+    SkeletonProps --> SkeletonVariant : uses
+    EmptyStateProps --> ButtonProps : action uses
+    AppState --> PageKey : uses
+    RecordsState --> XiabanyaApi : calls
+    ReportsState --> XiabanyaApi : calls
+    SettingsState --> XiabanyaApi : calls
+    DesignTokens --> ButtonProps : provides colors
+    DesignTokens --> CardProps : provides shadows
