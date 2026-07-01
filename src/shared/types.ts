@@ -64,6 +64,14 @@ export interface VisionResult {
   created_at: string;
 }
 
+// ===== 空闲时段 =====
+export interface IdlePeriod {
+  id: string;
+  start_at: string;
+  end_at: string | null;
+  created_at: string;
+}
+
 // ===== AI 识别结果增强（含近似时长） =====
 export interface VisionResultWithDuration extends VisionResult {
   approx_duration_sec: number; // 近似时长（秒），距下一条 vision_result 的 created_at 差值

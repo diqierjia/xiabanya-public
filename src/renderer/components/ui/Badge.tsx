@@ -20,7 +20,7 @@ const CATEGORY_COLOR_MAP: Record<string, string> = {
   '数据分析': 'bg-teal-50 text-teal-700',
   '研究': 'bg-violet-50 text-violet-700',
   'AI/工具': 'bg-cyan-50 text-cyan-700',
-  '配置环境': 'bg-gray-100 text-gray-700',
+  '配置环境': 'bg-orange-50 text-orange-700',
   '其他': 'bg-gray-50 text-gray-500',
 };
 

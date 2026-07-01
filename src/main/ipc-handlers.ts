@@ -1,20 +1,27 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, powerMonitor } from 'electron';
 import { DatabaseService } from './database';
 import { ActivityTracker } from './tracker';
 import type { TrackerCallback } from './tracker';
 import { captureScreenshot } from './screenshot';
 import { classifyWithVision, generateReport } from './ai';
-import { getSystemPrompt } from './report-generator';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import type { RecordUpsertDTO, RecordsQuery, ReportsQuery, VisionQuery } from '../shared/types';
-import { classify } from './classifier';
-import { parseUtcStorageDateTime } from '../shared/time';
+import { formatUtcStorageDateTime, parseUtcStorageDateTime } from '../shared/time';
 
 let tracker: ActivityTracker | null = null;
 let visionTimer: ReturnType<typeof setInterval> | null = null;
+let idleProbeTimer: ReturnType<typeof setInterval> | null = null;
+let resumeCaptureTimer: ReturnType<typeof setTimeout> | null = null;
 let visionCaptureInFlight = false;
 let visionAutoRunToken = 0;
 let visionAutoAbortController: AbortController | null = null;
+let visionAutoIntervalMinutes = 5;
+let idleState: 'active' | 'idle' = 'active';
+let currentIdlePeriodId: string | null = null;
+
+const IDLE_THRESHOLD_SECONDS = 300;
+const IDLE_PROBE_INTERVAL_MS = 5 * 1000;
+const RESUME_CAPTURE_DELAY_MS = 30 * 1000;
 
 /** v2.2: 缓存 tracker 最近一次快照的 app/title，供 Vision Auto 截图时使用 */
 let lastTrackerContext: { app: string; title: string } = { app: '截图', title: '自动识别' };
@@ -34,6 +41,108 @@ function getReportModel(db: DatabaseService): string {
 function normalizeScreenshotInterval(interval: unknown): number {
   const minutes = Math.round(Number(interval) || 5);
   return Math.min(60, Math.max(1, minutes));
+}
+
+function getSystemIdleSeconds(): number {
+  try {
+    return powerMonitor.getSystemIdleTime();
+  } catch (error) {
+    console.warn('[Vision Auto] Failed to read system idle time; idle detection skipped.', error);
+    return 0;
+  }
+}
+
+function clearIdleProbeTimer(): void {
+  if (idleProbeTimer) {
+    clearInterval(idleProbeTimer);
+    idleProbeTimer = null;
+  }
+}
+
+function clearResumeCaptureTimer(): void {
+  if (resumeCaptureTimer) {
+    clearTimeout(resumeCaptureTimer);
+    resumeCaptureTimer = null;
+  }
+}
+
+function startVisionTimer(db: DatabaseService, mainWindow: BrowserWindow, minutes: number): void {
+  if (visionTimer) clearInterval(visionTimer);
+  visionAutoRunToken += 1;
+  const runToken = visionAutoRunToken;
+  visionAutoIntervalMinutes = minutes;
+  visionTimer = setInterval(() => {
+    runVisionCaptureCycle(db, mainWindow, runToken).catch((error) => {
+      console.error('[Vision Auto] Capture cycle failed:', error);
+    });
+  }, minutes * 60 * 1000);
+}
+
+function abortInFlightVisionCapture(): void {
+  visionAutoAbortController?.abort();
+  visionAutoAbortController = null;
+}
+
+function enterIdle(db: DatabaseService, mainWindow: BrowserWindow, idleSeconds: number): void {
+  if (idleState === 'idle') return;
+
+  const lastInputTime = new Date(Date.now() - idleSeconds * 1000);
+  const lastInputAt = formatUtcStorageDateTime(lastInputTime);
+  idleState = 'idle';
+  currentIdlePeriodId = db.createIdlePeriod(lastInputAt);
+  const purged = db.purgeVisionResultsSince(lastInputAt);
+
+  clearResumeCaptureTimer();
+  abortInFlightVisionCapture();
+
+  if (!idleProbeTimer) {
+    idleProbeTimer = setInterval(() => {
+      if (visionTimer === null) {
+        clearIdleProbeTimer();
+        return;
+      }
+      const probeIdleSeconds = getSystemIdleSeconds();
+      if (probeIdleSeconds < IDLE_THRESHOLD_SECONDS) {
+        exitIdleAndScheduleResumeCapture(db, mainWindow, probeIdleSeconds);
+      }
+    }, IDLE_PROBE_INTERVAL_MS);
+  }
+
+  console.log(`[Vision Auto] Entered idle. start=${lastInputAt}, purged=${purged}`);
+}
+
+function exitIdleAndScheduleResumeCapture(db: DatabaseService, mainWindow: BrowserWindow, idleSeconds: number): void {
+  if (idleState !== 'idle') return;
+
+  const resumeTime = new Date(Date.now() - idleSeconds * 1000);
+  const resumeAt = formatUtcStorageDateTime(resumeTime);
+  if (currentIdlePeriodId) {
+    db.closeIdlePeriod(currentIdlePeriodId, resumeAt);
+  }
+
+  idleState = 'active';
+  currentIdlePeriodId = null;
+  clearIdleProbeTimer();
+  clearResumeCaptureTimer();
+  startVisionTimer(db, mainWindow, visionAutoIntervalMinutes);
+
+  const runToken = visionAutoRunToken;
+  resumeCaptureTimer = setTimeout(() => {
+    resumeCaptureTimer = null;
+    if (visionTimer === null || runToken !== visionAutoRunToken) return;
+
+    const latestIdleSeconds = getSystemIdleSeconds();
+    if (latestIdleSeconds >= IDLE_THRESHOLD_SECONDS) {
+      enterIdle(db, mainWindow, latestIdleSeconds);
+      return;
+    }
+
+    runVisionCaptureCycle(db, mainWindow, runToken).catch((error) => {
+      console.error('[Vision Auto] Resume capture failed:', error);
+    });
+  }, RESUME_CAPTURE_DELAY_MS);
+
+  console.log(`[Vision Auto] Exited idle. end=${resumeAt}, resume capture scheduled.`);
 }
 
 /**
@@ -93,6 +202,18 @@ function createTrackerCallback(db: DatabaseService, mainWindow: BrowserWindow): 
  * v2.2: Vision Auto 单次截屏 + 识别 + 存储 + 推送
  */
 async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWindow, runToken: number): Promise<void> {
+  if (visionTimer === null || runToken !== visionAutoRunToken) return;
+
+  const idleSeconds = getSystemIdleSeconds();
+  if (idleSeconds >= IDLE_THRESHOLD_SECONDS) {
+    enterIdle(db, mainWindow, idleSeconds);
+    return;
+  }
+  if (idleState === 'idle') {
+    exitIdleAndScheduleResumeCapture(db, mainWindow, idleSeconds);
+    return;
+  }
+
   if (visionCaptureInFlight) {
     console.warn('[Vision Auto] Previous capture is still running; skipped this tick.');
     return;
@@ -118,6 +239,11 @@ async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWin
 
     const result = await classifyWithVision(apiKey, model, base64, ctxApp, ctxTitle, abortController.signal);
     if (visionTimer === null || runToken !== visionAutoRunToken) return;
+    const latestIdleSeconds = getSystemIdleSeconds();
+    if (latestIdleSeconds >= IDLE_THRESHOLD_SECONDS) {
+      enterIdle(db, mainWindow, latestIdleSeconds);
+      return;
+    }
 
     db.addVisionResult({
       record_id: '',
@@ -142,20 +268,22 @@ async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWin
 }
 
 function startVisionAuto(db: DatabaseService, mainWindow: BrowserWindow, interval: unknown): number {
-  if (visionTimer) clearInterval(visionTimer);
-  visionAutoRunToken += 1;
-  const runToken = visionAutoRunToken;
   const minutes = normalizeScreenshotInterval(interval);
-  visionTimer = setInterval(() => {
-    runVisionCaptureCycle(db, mainWindow, runToken).catch(() => {});
-  }, minutes * 60 * 1000);
+  clearIdleProbeTimer();
+  clearResumeCaptureTimer();
+  idleState = 'active';
+  currentIdlePeriodId = null;
+  startVisionTimer(db, mainWindow, minutes);
   return minutes;
 }
 
 function stopVisionAuto(): void {
   visionAutoRunToken += 1;
-  visionAutoAbortController?.abort();
-  visionAutoAbortController = null;
+  abortInFlightVisionCapture();
+  clearIdleProbeTimer();
+  clearResumeCaptureTimer();
+  idleState = 'active';
+  currentIdlePeriodId = null;
   if (visionTimer) {
     clearInterval(visionTimer);
     visionTimer = null;
@@ -231,10 +359,16 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       end: end_date,
       limit: 500,
     });
+    const idlePeriods = db.listIdlePeriodsByDateRange({
+      start: start_date,
+      end: end_date,
+      limit: 100,
+    });
 
     const content = await generateReport(apiKey, model, {
       visionResults,
       records,
+      idlePeriods,
       template,
       reportType: report_type,
       startDate: start_date,

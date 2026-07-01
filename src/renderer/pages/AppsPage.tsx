@@ -17,7 +17,9 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Card } from '../components/ui/Card';
 import { toast } from '../components/ui/Toast';
+import { DateRangePicker } from '../components/DateRangePicker';
 import { dur } from '../lib/utils';
+import { today } from '../lib/constants';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 import { localDateFromUtcStorage, parseUtcStorageDateTime } from '../../shared/time';
 
@@ -34,10 +36,20 @@ interface AppStat {
   lastUsed: string;
 }
 
-const PIE_COLORS = [
-  '#08a64f', '#22c55e', '#4ade80', '#86efac',
-  '#bbf7d0', '#16a34a', '#15803d', '#166534',
-  '#14532d', '#dcfce7',
+/** 12 色分类色板 — 视觉互斥，色盲安全，与 globals.css chart tokens 同步 */
+const CHART_COLORS = [
+  '#4e79a7', // chart-1  蓝灰
+  '#08a64f', // chart-2  品牌绿
+  '#f28e2b', // chart-3  橙
+  '#e15759', // chart-4  红
+  '#76b7b2', // chart-5  青
+  '#b07aa1', // chart-6  紫
+  '#edc948', // chart-7  黄
+  '#ff9da7', // chart-8  粉
+  '#9c755f', // chart-9  棕
+  '#59a14f', // chart-10 深绿
+  '#bab0ac', // chart-11 灰
+  '#5b9bd5', // chart-12 天蓝
 ];
 
 export function AppsPage() {
@@ -46,18 +58,20 @@ export function AppsPage() {
   const [stats, setStats] = useState<AppStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [startDate, endDate]);
 
   const fetchStats = async () => {
     setLoading(true);
     setError(false);
     try {
       const data: Record[] = await api.records.list({
-        start: '2000-01-01',
-        end: '2099-12-31',
+        start: startDate,
+        end: endDate,
         limit: 5000,
       });
       const map = new Map<string, AppStat>();
@@ -80,6 +94,37 @@ export function AppsPage() {
     setLoading(false);
   };
 
+  const handleDateChange = (start: string, end: string) => {
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  const rangeText = startDate === endDate ? startDate : `${startDate} 至 ${endDate}`;
+
+  const toolbar = (
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <DateRangePicker startDate={startDate} endDate={endDate} onChange={handleDateChange} />
+      <div className="flex gap-2">
+        <Button
+          variant={view === 'bar' ? 'success' : 'secondary'}
+          size="sm"
+          icon={BarChart3}
+          onClick={() => setView('bar')}
+        >
+          柱状图
+        </Button>
+        <Button
+          variant={view === 'pie' ? 'success' : 'secondary'}
+          size="sm"
+          icon={PieChart}
+          onClick={() => setView('pie')}
+        >
+          饼图
+        </Button>
+      </div>
+    </div>
+  );
+
   const barData = stats.slice(0, 15).map((s) => ({
     name: s.app,
     duration: Math.round(s.totalSec / 60),
@@ -99,10 +144,7 @@ export function AppsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="flex gap-2">
-          <Skeleton variant="rect" className="w-24 h-9 rounded-lg" />
-          <Skeleton variant="rect" className="w-24 h-9 rounded-lg" />
-        </div>
+        {toolbar}
         <Skeleton variant="card" className="h-[300px]" />
         <Skeleton.List count={5} />
       </div>
@@ -111,51 +153,43 @@ export function AppsPage() {
 
   if (error) {
     return (
-      <EmptyState
-        icon={Monitor}
-        title="加载失败"
-        description="请检查后重试"
-        actionLabel="重试"
-        onAction={fetchStats}
-      />
+      <div className="space-y-6">
+        {toolbar}
+        <EmptyState
+          icon={Monitor}
+          title="加载失败"
+          description="请检查后重试"
+          actionLabel="重试"
+          onAction={fetchStats}
+        />
+      </div>
     );
   }
 
   if (stats.length === 0) {
     return (
-      <EmptyState
-        icon={Monitor}
-        title="无应用使用数据"
-        description="开始追踪后这里将显示应用使用统计"
-      />
+      <div className="space-y-6">
+        {toolbar}
+        <EmptyState
+          icon={Monitor}
+          title="所选日期范围内无应用使用数据"
+          description="开始追踪后这里将显示应用使用统计"
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* View Toggle */}
-      <div className="flex gap-2">
-        <Button
-          variant={view === 'bar' ? 'success' : 'secondary'}
-          size="sm"
-          icon={BarChart3}
-          onClick={() => setView('bar')}
-        >
-          柱状图
-        </Button>
-        <Button
-          variant={view === 'pie' ? 'success' : 'secondary'}
-          size="sm"
-          icon={PieChart}
-          onClick={() => setView('pie')}
-        >
-          饼图
-        </Button>
-      </div>
+      {toolbar}
 
       {/* Bar Chart */}
       {view === 'bar' && (
         <Card className="p-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-medium text-gray-800">应用使用时长 TOP 15</h2>
+            <p className="text-xs text-gray-500 mt-1">统计范围：{rangeText}</p>
+          </div>
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={barData} layout="vertical" margin={{ left: 80, right: 20, top: 10, bottom: 10 }}>
               <XAxis type="number" tickFormatter={(v: number) => dur(v * 60)} fontSize={12} stroke="#9ca3af" />
@@ -165,7 +199,11 @@ export function AppsPage() {
                 labelFormatter={(label: string) => `应用: ${label}`}
                 contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '13px' }}
               />
-              <Bar dataKey="duration" fill="#08a64f" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="duration" radius={[0, 4, 4, 0]}>
+                {barData.map((_, index) => (
+                  <Cell key={`bar-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </Card>
@@ -174,6 +212,10 @@ export function AppsPage() {
       {/* Pie Chart */}
       {view === 'pie' && (
         <Card className="p-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-medium text-gray-800">应用使用占比 TOP 10</h2>
+            <p className="text-xs text-gray-500 mt-1">统计范围：{rangeText}</p>
+          </div>
           <ResponsiveContainer width="100%" height={400}>
             <RePieChart>
               <Pie
@@ -187,7 +229,7 @@ export function AppsPage() {
                 nameKey="name"
               >
                 {pieData.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                 ))}
               </Pie>
               <RechartsTooltip

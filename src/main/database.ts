@@ -4,6 +4,7 @@ import { dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   ActivityRecord,
+  IdlePeriod,
   Report,
   VisionResult,
   VisionQuery,
@@ -85,6 +86,16 @@ export class DatabaseService {
         model TEXT,
         created_at TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS idle_periods (
+        id TEXT PRIMARY KEY,
+        start_at TEXT NOT NULL,
+        end_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_idle_periods_range ON idle_periods(start_at, end_at);
+      CREATE INDEX IF NOT EXISTS idx_vision_created ON vision_results(created_at);
     `);
   }
 
@@ -280,6 +291,41 @@ export class DatabaseService {
     transaction(ids);
   }
 
+  purgeVisionResultsSince(since: string): number {
+    const result = this.db.prepare('DELETE FROM vision_results WHERE created_at >= ?').run(since);
+    return result.changes;
+  }
+
+  // ===== Idle Periods =====
+  createIdlePeriod(startAt: string): string {
+    const id = uuidv4();
+    const now = formatUtcStorageDateTime();
+    this.db.prepare(
+      'INSERT INTO idle_periods (id, start_at, end_at, created_at) VALUES (?, ?, NULL, ?)'
+    ).run(id, startAt, now);
+    return id;
+  }
+
+  closeIdlePeriod(id: string, endAt: string): void {
+    this.db.prepare('UPDATE idle_periods SET end_at = ? WHERE id = ?').run(endAt, id);
+  }
+
+  listIdlePeriodsByDateRange(query: { start: string; end: string; limit?: number }): IdlePeriod[] {
+    const range = localDateRangeToUtcStorageRange(query.start, query.end);
+    let sql = `
+      SELECT * FROM idle_periods
+      WHERE start_at <= ?
+        AND COALESCE(end_at, '9999-12-31 23:59:59') >= ?
+      ORDER BY start_at ASC
+    `;
+    const params: unknown[] = [range.end, range.start];
+    if (query.limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(query.limit);
+    }
+    return this.db.prepare(sql).all(...params) as IdlePeriod[];
+  }
+
   // ===== Export/Import =====
   exportAll(): { exported_at: string; records: ActivityRecord[]; reports: Report[] } {
     const records = this.listRecords({ start: '1900-01-01', end: '2999-12-31' });
@@ -305,7 +351,7 @@ export class DatabaseService {
   }
 
   clear(): void {
-    this.db.exec('DELETE FROM records; DELETE FROM reports; DELETE FROM vision_results;');
+    this.db.exec('DELETE FROM records; DELETE FROM reports; DELETE FROM vision_results; DELETE FROM idle_periods;');
   }
 
   close(): void {

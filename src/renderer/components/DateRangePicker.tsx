@@ -23,11 +23,18 @@ function weekStart(): string {
   return formatLocalDate(d);
 }
 
+function monthStart(): string {
+  const d = new Date();
+  d.setDate(1);
+  return formatLocalDate(d);
+}
+
 export function DateRangePicker({ startDate, endDate, onChange }: DateRangePickerProps) {
   const presets = [
     { label: '今天', start: todayStr(), end: todayStr() },
     { label: '昨天', start: daysAgo(1), end: daysAgo(1) },
     { label: '本周', start: weekStart(), end: todayStr() },
+    { label: '本月', start: monthStart(), end: todayStr() },
     { label: '近7天', start: daysAgo(6), end: todayStr() },
   ];
   const activePresetIndex = presets.findIndex((preset) => startDate === preset.start && endDate === preset.end);

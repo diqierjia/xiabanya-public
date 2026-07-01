@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DatabaseService } from '../src/main/database';
 
 // Helper to create a fresh DatabaseService instance for each test
@@ -17,8 +17,9 @@ describe('DatabaseService', () => {
   });
 
   afterEach(() => {
-    service.close();
+    service?.close();
     DatabaseService.resetInstance();
+    vi.useRealTimers();
   });
 
   // ===== Singleton =====
@@ -645,6 +646,61 @@ describe('DatabaseService', () => {
       expect(results).toHaveLength(2);
       const titles = results.map(r => r.title).sort();
       expect(titles).toEqual(['Result A', 'Result B']);
+    });
+  });
+
+  describe('purgeVisionResultsSince()', () => {
+    it('deletes only vision results created at or after the cutoff', () => {
+      vi.useFakeTimers();
+
+      vi.setSystemTime(new Date('2026-06-25T01:00:00.000Z'));
+      service.addVisionResult({
+        record_id: 'rec-before', title: 'Before', category: '开发',
+        summary: '', raw_response: '', app: '', window_title: '',
+        model: 'Qwen/Qwen3-VL-8B-Instruct',
+      });
+
+      vi.setSystemTime(new Date('2026-06-25T01:05:00.000Z'));
+      service.addVisionResult({
+        record_id: 'rec-after', title: 'After', category: '其他',
+        summary: '', raw_response: '', app: '', window_title: '',
+        model: 'Qwen/Qwen3-VL-8B-Instruct',
+      });
+
+      const deleted = service.purgeVisionResultsSince('2026-06-25 01:03:00');
+      const remaining = service.listVisionResults();
+
+      expect(deleted).toBe(1);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].title).toBe('Before');
+    });
+  });
+
+  describe('idle periods', () => {
+    it('creates and closes an idle period', () => {
+      const id = service.createIdlePeriod('2026-06-25 01:00:00');
+      service.closeIdlePeriod(id, '2026-06-25 01:20:00');
+
+      const periods = service.listIdlePeriodsByDateRange({ start: '2026-06-25', end: '2026-06-25' });
+      expect(periods).toHaveLength(1);
+      expect(periods[0].id).toBe(id);
+      expect(periods[0].start_at).toBe('2026-06-25 01:00:00');
+      expect(periods[0].end_at).toBe('2026-06-25 01:20:00');
+    });
+
+    it('finds idle periods that overlap the requested local date range', () => {
+      const id = service.createIdlePeriod('2026-06-24 23:00:00');
+      service.closeIdlePeriod(id, '2026-06-25 01:00:00');
+
+      const periods = service.listIdlePeriodsByDateRange({ start: '2026-06-25', end: '2026-06-25' });
+      expect(periods.map((period) => period.id)).toContain(id);
+    });
+
+    it('clear() removes idle periods', () => {
+      service.createIdlePeriod('2026-06-25 01:00:00');
+      service.clear();
+
+      expect(service.listIdlePeriodsByDateRange({ start: '2026-06-25', end: '2026-06-25' })).toHaveLength(0);
     });
   });
 
