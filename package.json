@@ -16,6 +16,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "rebuild:native": "electron-rebuild -f --only better-sqlite3 -v 35.7.5",
+    "dist:win": "npm run build && npm run rebuild:native && electron-builder --win nsis --publish never",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
