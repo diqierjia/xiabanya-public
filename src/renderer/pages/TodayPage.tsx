@@ -91,7 +91,7 @@ export function TodayPage() {
               <Badge category={summary.latest.category} />
             </div>
             <p className="text-brand-100/80 text-sm mt-2 line-clamp-2 max-w-lg">
-              {summary.latest.summary || '暂无摘要'}
+              {summary.latest.observed_fact || summary.latest.summary || '暂无摘要'}
             </p>
             <div className="flex items-center gap-4 mt-3 text-xs text-brand-100/70">
               <span className="flex items-center gap-1">

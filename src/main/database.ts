@@ -4,6 +4,7 @@ import { dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   ActivityRecord,
+  ChatHistoryMessage,
   IdlePeriod,
   Report,
   VisionResult,
@@ -94,9 +95,32 @@ export class DatabaseService {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_idle_periods_range ON idle_periods(start_at, end_at);
       CREATE INDEX IF NOT EXISTS idx_vision_created ON vision_results(created_at);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
     `);
+    this.ensureVisionResultColumns();
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!columns.some((c) => c.name === column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
+
+  private ensureVisionResultColumns(): void {
+    this.ensureColumn('vision_results', 'observed_fact', 'TEXT DEFAULT ""');
+    this.ensureColumn('vision_results', 'possible_activity', 'TEXT DEFAULT ""');
+    this.ensureColumn('vision_results', 'confidence', 'TEXT DEFAULT "medium"');
+    this.ensureColumn('vision_results', 'activity_type', 'TEXT DEFAULT "unclear"');
   }
 
   // ===== Records CRUD =====
@@ -218,6 +242,35 @@ export class DatabaseService {
     this.db.prepare('DELETE FROM reports WHERE id = ?').run(id);
   }
 
+  // ===== Chat Messages =====
+  addChatMessage(message: { role: 'user' | 'assistant'; content: string }): string {
+    const content = message.content.trim();
+    if (!content) {
+      throw new Error('Chat message content cannot be empty');
+    }
+    const id = uuidv4();
+    const now = formatUtcStorageDateTime();
+    this.db.prepare(
+      'INSERT INTO chat_messages (id, role, content, created_at) VALUES (?, ?, ?, ?)'
+    ).run(id, message.role, content, now);
+    return id;
+  }
+
+  listChatMessages(query: { q?: string; limit?: number } = {}): ChatHistoryMessage[] {
+    let sql = 'SELECT * FROM chat_messages WHERE 1=1';
+    const params: unknown[] = [];
+    if (query.q) {
+      sql += ' AND content LIKE ?';
+      params.push(`%${query.q}%`);
+    }
+    sql += ' ORDER BY created_at DESC';
+    if (query.limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(query.limit);
+    }
+    return (this.db.prepare(sql).all(...params) as ChatHistoryMessage[]).reverse();
+  }
+
   // ===== Settings =====
   getSetting(key: string, defaultValue: string = ''): string {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
@@ -239,7 +292,8 @@ export class DatabaseService {
 
   // ===== Vision Results =====
   listVisionResults(limit: number = 20): VisionResult[] {
-    return this.db.prepare('SELECT * FROM vision_results ORDER BY created_at DESC LIMIT ?').all(limit) as VisionResult[];
+    const rows = this.db.prepare('SELECT * FROM vision_results ORDER BY created_at DESC LIMIT ?').all(limit) as VisionResult[];
+    return rows.map((row) => this.normalizeVisionResult(row));
   }
 
   /** 按日期范围查询 vision_results，支持搜索和分类过滤 */
@@ -250,9 +304,9 @@ export class DatabaseService {
     const params: unknown[] = [range.start, range.end];
 
     if (q) {
-      sql += ` AND (title LIKE ? OR summary LIKE ? OR category LIKE ? OR app LIKE ? OR window_title LIKE ?)`;
+      sql += ` AND (title LIKE ? OR summary LIKE ? OR observed_fact LIKE ? OR possible_activity LIKE ? OR category LIKE ? OR app LIKE ? OR window_title LIKE ?)`;
       const likeQ = `%${q}%`;
-      params.push(likeQ, likeQ, likeQ, likeQ, likeQ);
+      params.push(likeQ, likeQ, likeQ, likeQ, likeQ, likeQ, likeQ);
     }
     if (category) {
       sql += ` AND category = ?`;
@@ -264,16 +318,45 @@ export class DatabaseService {
       params.push(limit);
     }
 
-    return this.db.prepare(sql).all(...params) as VisionResult[];
+    const rows = this.db.prepare(sql).all(...params) as VisionResult[];
+    return rows.map((row) => this.normalizeVisionResult(row));
   }
 
   addVisionResult(vr: Omit<VisionResult, 'id' | 'created_at'>): string {
     const id = uuidv4();
     const now = formatUtcStorageDateTime();
     this.db.prepare(
-      'INSERT INTO vision_results (id, record_id, title, category, summary, raw_response, app, window_title, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, vr.record_id, vr.title, vr.category, vr.summary, vr.raw_response, vr.app, vr.window_title, vr.model, now);
+      `INSERT INTO vision_results (
+        id, record_id, title, category, summary, observed_fact, possible_activity,
+        confidence, activity_type, raw_response, app, window_title, model, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      vr.record_id,
+      vr.title,
+      vr.category,
+      vr.summary,
+      vr.observed_fact || vr.summary || '',
+      vr.possible_activity || vr.summary || '',
+      vr.confidence || 'medium',
+      vr.activity_type || 'unclear',
+      vr.raw_response,
+      vr.app,
+      vr.window_title,
+      vr.model,
+      now
+    );
     return id;
+  }
+
+  private normalizeVisionResult(row: VisionResult): VisionResult {
+    return {
+      ...row,
+      observed_fact: row.observed_fact || row.summary || '',
+      possible_activity: row.possible_activity || row.summary || '',
+      confidence: row.confidence || 'medium',
+      activity_type: row.activity_type || 'unclear',
+    };
   }
 
   deleteVisionResult(id: string): void {
@@ -351,7 +434,7 @@ export class DatabaseService {
   }
 
   clear(): void {
-    this.db.exec('DELETE FROM records; DELETE FROM reports; DELETE FROM vision_results; DELETE FROM idle_periods;');
+    this.db.exec('DELETE FROM records; DELETE FROM reports; DELETE FROM vision_results; DELETE FROM idle_periods; DELETE FROM chat_messages;');
   }
 
   close(): void {

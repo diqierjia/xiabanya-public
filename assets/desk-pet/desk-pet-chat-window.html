@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title></title>
+  <style>
+    :root {
+      font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+      color: #263238;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .chat-panel {
+      position: fixed;
+      inset: 10px;
+      display: grid;
+      grid-template-rows: auto 1fr auto auto;
+      gap: 8px;
+      box-sizing: border-box;
+      padding: 12px;
+      border: 1px solid rgba(38, 50, 56, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 16px 44px rgba(38, 50, 56, 0.18);
+      backdrop-filter: blur(10px);
+      -webkit-app-region: no-drag;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+    }
+
+    .chat-title {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 700;
+      color: #263238;
+    }
+
+    .chat-close {
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: 999px;
+      background: #eef3f1;
+      color: #607d8b;
+      cursor: pointer;
+    }
+
+    .chat-close:hover {
+      background: #dfe8e4;
+      color: #263238;
+    }
+
+    .messages {
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 2px;
+    }
+
+    .message {
+      max-width: 88%;
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      user-select: text;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: #edf7f2;
+      color: #263238;
+      border-bottom-left-radius: 5px;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: #263238;
+      color: white;
+      border-bottom-right-radius: 5px;
+    }
+
+    .message.error {
+      align-self: flex-start;
+      background: #fff0f0;
+      color: #b42318;
+      border-bottom-left-radius: 5px;
+    }
+
+    .message.streaming::after {
+      content: '';
+      display: inline-block;
+      width: 5px;
+      height: 1em;
+      margin-left: 2px;
+      border-right: 2px solid rgba(38, 50, 56, 0.45);
+      vertical-align: -2px;
+      animation: blink 0.9s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    .quick-prompts {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 1px;
+    }
+
+    .quick-prompts button {
+      flex: 0 0 auto;
+      border: 1px solid #d5e1dc;
+      border-radius: 999px;
+      background: #f7faf8;
+      color: #4a6360;
+      padding: 6px 9px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .quick-prompts button:hover {
+      border-color: #91b9a5;
+      color: #1f5f3b;
+    }
+
+    .chat-form {
+      display: grid;
+      grid-template-columns: 1fr 54px;
+      gap: 8px;
+    }
+
+    .chat-input {
+      min-width: 0;
+      height: 34px;
+      box-sizing: border-box;
+      border: 1px solid #cfd8dc;
+      border-radius: 10px;
+      padding: 0 10px;
+      background: white;
+      color: #263238;
+      outline: none;
+      user-select: text;
+    }
+
+    .chat-input:focus {
+      border-color: #08a64f;
+      box-shadow: 0 0 0 3px rgba(8, 166, 79, 0.12);
+    }
+
+    .send-button {
+      height: 34px;
+      border: 0;
+      border-radius: 10px;
+      background: #08a64f;
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .send-button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <section class="chat-panel" aria-label="下班鸭对话">
+    <div class="chat-header">
+      <div class="chat-title">下班鸭</div>
+      <button class="chat-close" type="button" aria-label="关闭对话">x</button>
+    </div>
+    <div class="messages"></div>
+    <div class="quick-prompts">
+      <button type="button" data-prompt="今天过得怎么样？">聊两句</button>
+      <button type="button" data-prompt="今天我主要做了什么？">今天做了啥</button>
+      <button type="button" data-prompt="帮我整理一下今日日报素材。">整理日报</button>
+    </div>
+    <form class="chat-form">
+      <input class="chat-input" maxlength="500" placeholder="和下班鸭说两句..." autocomplete="off">
+      <button class="send-button" type="submit">发送</button>
+    </form>
+  </section>
+  <script>
+    const hostWindow = window.xiabanyaApi && window.xiabanyaApi.deskPetWindow;
+    const chatApi = window.xiabanyaApi && window.xiabanyaApi.chat;
+    const closeChatButton = document.querySelector('.chat-close');
+    const messagesEl = document.querySelector('.messages');
+    const chatForm = document.querySelector('.chat-form');
+    const chatInput = document.querySelector('.chat-input');
+    const sendButton = document.querySelector('.send-button');
+    let activeStreamId = null;
+    let activeAssistantMessage = null;
+    const messages = [
+      {
+        role: 'assistant',
+        content: '我在这儿。想聊天也行，想收拾一下今天的工作也行。',
+      },
+    ];
+
+    window.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    function renderMessages() {
+      messagesEl.innerHTML = '';
+      for (const message of messages) {
+        const bubble = document.createElement('div');
+        bubble.className = `message ${message.role}${message.streaming ? ' streaming' : ''}`;
+        bubble.textContent = message.content;
+        messagesEl.appendChild(bubble);
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function setSending(next) {
+      sendButton.disabled = next;
+      chatInput.disabled = next;
+      sendButton.textContent = next ? '...' : '发送';
+    }
+
+    function stopActiveStream() {
+      if (activeStreamId && chatApi && chatApi.abortStream) {
+        chatApi.abortStream(activeStreamId).catch(() => {});
+      }
+      activeStreamId = null;
+      activeAssistantMessage = null;
+    }
+
+    function closeChat() {
+      stopActiveStream();
+      if (hostWindow && hostWindow.setChatOpen) {
+        hostWindow.setChatOpen(false);
+      }
+    }
+
+    async function sendChat(content) {
+      const text = String(content || '').trim();
+      if (!text || activeStreamId) return;
+      messages.push({ role: 'user', content: text });
+      activeAssistantMessage = { role: 'assistant', content: '', streaming: true };
+      messages.push(activeAssistantMessage);
+      chatInput.value = '';
+      renderMessages();
+      setSending(true);
+
+      try {
+        if (!chatApi || !chatApi.startStream) {
+          throw new Error('桌宠对话接口未就绪');
+        }
+        activeStreamId = await chatApi.startStream(messages.map(({ role, content }) => ({ role, content })));
+      } catch (error) {
+        messages.pop();
+        messages.push({
+          role: 'error',
+          content: error && error.message ? error.message : '下班鸭暂时没能回复。',
+        });
+        activeAssistantMessage = null;
+        activeStreamId = null;
+        setSending(false);
+        renderMessages();
+        chatInput.focus();
+      }
+    }
+
+    closeChatButton.addEventListener('click', closeChat);
+    window.addEventListener('beforeunload', stopActiveStream);
+
+    chatForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      sendChat(chatInput.value);
+    });
+
+    document.querySelectorAll('[data-prompt]').forEach((button) => {
+      button.addEventListener('click', () => {
+        sendChat(button.dataset.prompt);
+      });
+    });
+
+    if (chatApi) {
+      chatApi.onDelta?.(({ streamId, delta }) => {
+        if (streamId !== activeStreamId || !activeAssistantMessage) return;
+        activeAssistantMessage.content += delta;
+        renderMessages();
+      });
+
+      chatApi.onDone?.(({ streamId }) => {
+        if (streamId !== activeStreamId) return;
+        if (activeAssistantMessage) {
+          activeAssistantMessage.streaming = false;
+          if (!activeAssistantMessage.content.trim()) {
+            activeAssistantMessage.content = '嗯……我刚刚没想出合适的话。你再问我一次？';
+          }
+        }
+        activeStreamId = null;
+        activeAssistantMessage = null;
+        setSending(false);
+        renderMessages();
+        chatInput.focus();
+      });
+
+      chatApi.onError?.(({ streamId, message }) => {
+        if (streamId !== activeStreamId) return;
+        if (activeAssistantMessage) {
+          const index = messages.indexOf(activeAssistantMessage);
+          if (index >= 0) {
+            messages.splice(index, 1);
+          }
+        }
+        messages.push({ role: 'error', content: message || '下班鸭暂时没能回复。' });
+        activeStreamId = null;
+        activeAssistantMessage = null;
+        setSending(false);
+        renderMessages();
+        chatInput.focus();
+      });
+    }
+
+    renderMessages();
+    setTimeout(() => chatInput.focus(), 80);
+  </script>
+</body>
+</html>

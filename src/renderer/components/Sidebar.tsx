@@ -5,6 +5,7 @@ import {
   Grid3X3,
   Monitor,
   History,
+  MessageCircle,
   Settings,
 } from 'lucide-react';
 import type { PageKey } from '../App';
@@ -35,6 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'report', label: '生成报告', icon: FileText },
       { key: 'history', label: '历史报告', icon: History },
+      { key: 'chatHistory', label: '聊天记录', icon: MessageCircle },
     ],
   },
   {

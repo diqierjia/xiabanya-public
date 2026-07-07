@@ -6,6 +6,7 @@ export type {
   VisionResultWithDuration,
   VisionQuery,
   VisionDailySummary,
+  DeskPetState,
   RecordUpsertDTO,
   RecordsQuery,
   ReportsQuery,
@@ -13,4 +14,4 @@ export type {
   HeatmapCell,
   AppSettings,
 } from '../../shared/types';
-export { CATEGORIES, CATEGORY_COLORS, TEMPLATES, DEFAULT_SETTINGS } from '../../shared/types';
+export { CATEGORIES, CATEGORY_COLORS, TEMPLATES, DEFAULT_SETTINGS, DESK_PET_STATES } from '../../shared/types';

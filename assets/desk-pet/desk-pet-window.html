@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title></title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+
+    canvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      background: transparent;
+      cursor: grab;
+      -webkit-app-region: no-drag;
+    }
+
+    body.dragging canvas {
+      cursor: grabbing;
+    }
+
+    .resize-handle {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      width: 28px;
+      height: 28px;
+      cursor: nwse-resize;
+      -webkit-app-region: no-drag;
+    }
+
+    .resize-handle::after {
+      content: '';
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      width: 9px;
+      height: 9px;
+      border-right: 2px solid rgba(38, 50, 56, 0.28);
+      border-bottom: 2px solid rgba(38, 50, 56, 0.28);
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+
+    .resize-handle:hover::after {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="pet" width="256" height="256"></canvas>
+  <div class="resize-handle" aria-hidden="true"></div>
+  <script>
+    const canvas = document.getElementById('pet');
+    const ctx = canvas.getContext('2d');
+    const hostWindow = window.xiabanyaApi && window.xiabanyaApi.deskPetWindow;
+    const resizeHandle = document.querySelector('.resize-handle');
+    let config;
+    let image;
+    let renderBounds = {};
+    let frame = 0;
+    let last = 0;
+    let state = 'idle';
+    let gesture = null;
+    let gestureStartPoint = null;
+    let gestureMoved = false;
+    const validStates = new Set(['idle', 'working', 'thinking', 'done', 'sleep']);
+
+    window.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    function eventPoint(event) {
+      return {
+        screenX: event.screenX,
+        screenY: event.screenY,
+      };
+    }
+
+    function startGesture(type, event) {
+      if (!hostWindow || event.button !== 0) return;
+      gesture = type;
+      gestureStartPoint = eventPoint(event);
+      gestureMoved = false;
+      document.body.classList.toggle('dragging', type === 'drag');
+      event.preventDefault();
+      event.stopPropagation();
+      if (type === 'resize') {
+        hostWindow.beginResize(gestureStartPoint);
+      } else {
+        hostWindow.beginDrag(gestureStartPoint);
+      }
+    }
+
+    function updateGesture(event) {
+      if (!hostWindow || !gesture) return;
+      const point = eventPoint(event);
+      if (gestureStartPoint) {
+        const dx = point.screenX - gestureStartPoint.screenX;
+        const dy = point.screenY - gestureStartPoint.screenY;
+        gestureMoved = gestureMoved || Math.hypot(dx, dy) > 4;
+      }
+      event.preventDefault();
+      if (gesture === 'resize') {
+        hostWindow.resize(point);
+      } else {
+        hostWindow.drag(point);
+      }
+    }
+
+    function endGesture() {
+      if (!hostWindow || !gesture) return;
+      const endedGesture = gesture;
+      const shouldToggleChat = endedGesture === 'drag' && !gestureMoved;
+      gesture = null;
+      gestureStartPoint = null;
+      document.body.classList.remove('dragging');
+      hostWindow.endGesture();
+      if (shouldToggleChat && hostWindow.toggleChat) {
+        hostWindow.toggleChat();
+      }
+    }
+
+    canvas.addEventListener('pointerdown', (event) => startGesture('drag', event));
+    resizeHandle.addEventListener('pointerdown', (event) => startGesture('resize', event));
+    window.addEventListener('pointermove', updateGesture);
+    window.addEventListener('pointerup', endGesture);
+    window.addEventListener('pointercancel', endGesture);
+    window.addEventListener('blur', endGesture);
+
+    function setDeskPetState(next) {
+      if (!validStates.has(next) || next === state) return;
+      state = next;
+      frame = 0;
+      last = 0;
+    }
+
+    window.setDeskPetState = setDeskPetState;
+
+    function measureFrameBounds(source) {
+      const probe = document.createElement('canvas');
+      probe.width = source.w;
+      probe.height = source.h;
+      const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+      probeCtx.drawImage(image, source.x, source.y, source.w, source.h, 0, 0, source.w, source.h);
+      const pixels = probeCtx.getImageData(0, 0, source.w, source.h).data;
+      let minX = source.w;
+      let minY = source.h;
+      let maxX = -1;
+      let maxY = -1;
+
+      for (let y = 0; y < source.h; y += 1) {
+        for (let x = 0; x < source.w; x += 1) {
+          const alpha = pixels[(y * source.w + x) * 4 + 3];
+          if (alpha > 12) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        return { x: 0, y: 0, w: source.w, h: source.h };
+      }
+
+      const pad = 4;
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = Math.min(source.w - 1, maxX + pad);
+      maxY = Math.min(source.h - 1, maxY + pad);
+      return {
+        x: minX,
+        y: minY,
+        w: maxX - minX + 1,
+        h: maxY - minY + 1,
+      };
+    }
+
+    function buildRenderBounds() {
+      renderBounds = {};
+      for (const [name, stateData] of Object.entries(config.states)) {
+        const stateBounds = stateData.frames.map(measureFrameBounds);
+        const minX = Math.min(...stateBounds.map((bounds) => bounds.x));
+        const minY = Math.min(...stateBounds.map((bounds) => bounds.y));
+        const maxX = Math.max(...stateBounds.map((bounds) => bounds.x + bounds.w));
+        const maxY = Math.max(...stateBounds.map((bounds) => bounds.y + bounds.h));
+        renderBounds[name] = {
+          x: minX,
+          y: minY,
+          w: maxX - minX,
+          h: maxY - minY,
+        };
+      }
+    }
+
+    function resizeCanvasToWindow() {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = Math.max(1, window.devicePixelRatio || 1);
+      const width = Math.max(1, Math.round(rect.width * ratio));
+      const height = Math.max(1, Math.round(rect.height * ratio));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    }
+
+    function drawCroppedFrame(source) {
+      const bounds = renderBounds[state] || source;
+      const targetW = canvas.width;
+      const targetH = canvas.height;
+      const scale = Math.min(targetW / bounds.w, targetH / bounds.h);
+      const drawW = Math.round(bounds.w * scale);
+      const drawH = Math.round(bounds.h * scale);
+      const drawX = Math.round((canvas.width - drawW) / 2);
+      const drawY = Math.round((canvas.height - drawH) / 2);
+      ctx.drawImage(image, source.x + bounds.x, source.y + bounds.y, bounds.w, bounds.h, drawX, drawY, drawW, drawH);
+    }
+
+    function paintCurrentFrame() {
+      if (!config || !image) return;
+      const stateData = config.states[state] || config.states.idle;
+      const current = stateData.frames[frame % stateData.frames.length];
+      resizeCanvasToWindow();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawCroppedFrame(current);
+    }
+
+    window.forceDeskPetRepaint = () => {
+      paintCurrentFrame();
+      requestAnimationFrame(paintCurrentFrame);
+    };
+
+    function queryState() {
+      const params = new URLSearchParams(location.search);
+      const next = params.get('state');
+      if (next && config && config.states[next]) {
+        setDeskPetState(next);
+      }
+    }
+
+    function draw(timestamp) {
+      if (!config || !image) {
+        requestAnimationFrame(draw);
+        return;
+      }
+
+      const stateData = config.states[state] || config.states.idle;
+      const current = stateData.frames[frame % stateData.frames.length];
+      if (timestamp - last >= current.durationMs) {
+        frame = (frame + 1) % stateData.frames.length;
+        last = timestamp;
+      }
+
+      paintCurrentFrame();
+      requestAnimationFrame(draw);
+    }
+
+    window.addEventListener('resize', resizeCanvasToWindow);
+
+    Promise.all([
+      fetch('xiabanya-desk-pet-sprites.json').then((response) => response.json()),
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = 'xiabanya-desk-pet-spritesheet.png';
+      }),
+    ]).then(([loadedConfig, loadedImage]) => {
+      config = loadedConfig;
+      image = loadedImage;
+      buildRenderBounds();
+      queryState();
+      requestAnimationFrame(draw);
+    }).catch((error) => {
+      console.error('[DeskPet] Failed to load sprites.', error);
+    });
+  </script>
+</body>
+</html>

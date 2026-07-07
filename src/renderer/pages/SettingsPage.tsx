@@ -28,8 +28,14 @@ const VALID_REPORT_MODELS = [
   'Qwen/Qwen2.5-72B-Instruct',
   'Qwen/Qwen2.5-32B-Instruct',
 ];
+const VALID_CHAT_MODELS = [
+  'deepseek-ai/DeepSeek-V4-Flash',
+  'deepseek-ai/DeepSeek-V3',
+  'Qwen/Qwen2.5-32B-Instruct',
+];
 const DEFAULT_VISION = 'Qwen/Qwen3-VL-32B-Instruct';
 const DEFAULT_REPORT = 'deepseek-ai/DeepSeek-V3';
+const DEFAULT_CHAT = 'deepseek-ai/DeepSeek-V4-Flash';
 
 function normalizeScreenshotInterval(value: number): number {
   const minutes = Math.round(Number(value) || 5);
@@ -44,10 +50,12 @@ export function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [visionModel, setVisionModel] = useState('');
   const [reportModel, setReportModel] = useState('');
+  const [chatModel, setChatModel] = useState('');
   const [screenshotInterval, setScreenshotInterval] = useState(5);
   const [keepScreenshots, setKeepScreenshots] = useState(false);
   const [autoStartTracker, setAutoStartTracker] = useState(false);
   const [autoVisionToggle, setAutoVisionToggle] = useState(false);
+  const [deskPetEnabled, setDeskPetEnabled] = useState(false);
 
   // Custom categories
   const [customCategories, setCustomCategories] = useState<UserCategory[]>([]);
@@ -67,10 +75,12 @@ export function SettingsPage() {
     setApiKey(settings.siliconflow_api_key);
     setVisionModel(VALID_VISION_MODELS.includes(settings.vision_model) ? settings.vision_model : DEFAULT_VISION);
     setReportModel(VALID_REPORT_MODELS.includes(settings.report_model) ? settings.report_model : DEFAULT_REPORT);
+    setChatModel(VALID_CHAT_MODELS.includes(settings.chat_model) ? settings.chat_model : DEFAULT_CHAT);
     setScreenshotInterval(settings.screenshot_interval);
     setKeepScreenshots(settings.keep_screenshots);
     setAutoStartTracker(settings.auto_start_tracker);
     setAutoVisionToggle(settings.auto_vision_toggle);
+    setDeskPetEnabled(settings.desk_pet_enabled);
   }, [settings, loaded]);
 
   const save = async () => {
@@ -81,10 +91,12 @@ export function SettingsPage() {
       await setSetting('siliconflow_api_key', apiKey);
       await setSetting('vision_model', visionModel);
       await setSetting('report_model', reportModel);
+      await setSetting('chat_model', chatModel);
       await setSetting('screenshot_interval', interval);
       await setSetting('keep_screenshots', keepScreenshots);
       await setSetting('auto_start_tracker', autoStartTracker);
       await setSetting('auto_vision_toggle', autoVisionToggle);
+      await setSetting('desk_pet_enabled', deskPetEnabled);
 
       if (autoStartTracker) {
         await api.tracker.start();
@@ -104,7 +116,8 @@ export function SettingsPage() {
 
       await fetchSettings();
       toast.success('设置已保存');
-    } catch {
+    } catch (error) {
+      console.error('[Settings] Save failed:', error);
       toast.error('保存失败');
     }
   };
@@ -250,6 +263,16 @@ export function SettingsPage() {
                 { value: 'Qwen/Qwen2.5-32B-Instruct', label: 'Qwen2.5 32B (快速)' },
               ]}
             />
+            <Select
+              label="桌宠对话模型"
+              value={chatModel}
+              onChange={(e) => setChatModel(e.target.value)}
+              options={[
+                { value: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek-V4-Flash (推荐)' },
+                { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3' },
+                { value: 'Qwen/Qwen2.5-32B-Instruct', label: 'Qwen2.5 32B (快速)' },
+              ]}
+            />
           </div>
         </div>
       </Card>
@@ -303,6 +326,15 @@ export function SettingsPage() {
               className="rounded"
             />
             <span className="text-sm text-gray-600">自动开启截图识别</span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={deskPetEnabled}
+              onChange={(e) => setDeskPetEnabled(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm text-gray-600">启用桌宠</span>
           </label>
         </div>
       </Card>

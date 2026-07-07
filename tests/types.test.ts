@@ -65,9 +65,9 @@ describe('CATEGORY_COLORS', () => {
 
 // ===== DEFAULT_SETTINGS =====
 describe('DEFAULT_SETTINGS', () => {
-  it('has all 8 required fields', () => {
+  it('has all 10 required fields', () => {
     const keys = Object.keys(DEFAULT_SETTINGS);
-    expect(keys).toHaveLength(8);
+    expect(keys).toHaveLength(10);
   });
 
   it('has correct field names', () => {
@@ -75,11 +75,13 @@ describe('DEFAULT_SETTINGS', () => {
       'siliconflow_api_key',
       'vision_model',
       'report_model',
+      'chat_model',
       'screenshot_interval',
       'keep_screenshots',
       'auto_start_tracker',
       'auto_vision_toggle',
       'startup_with_windows',
+      'desk_pet_enabled',
     ];
     for (const key of expectedKeys) {
       expect(DEFAULT_SETTINGS).toHaveProperty(key);
@@ -98,6 +100,10 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.report_model).toBe('deepseek-ai/DeepSeek-V3');
   });
 
+  it('chat_model defaults to DeepSeek-V4-Flash', () => {
+    expect(DEFAULT_SETTINGS.chat_model).toBe('deepseek-ai/DeepSeek-V4-Flash');
+  });
+
   it('screenshot_interval defaults to 5', () => {
     expect(DEFAULT_SETTINGS.screenshot_interval).toBe(5);
   });
@@ -107,28 +113,31 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.auto_start_tracker).toBe(false);
     expect(DEFAULT_SETTINGS.auto_vision_toggle).toBe(false);
     expect(DEFAULT_SETTINGS.startup_with_windows).toBe(false);
+    expect(DEFAULT_SETTINGS.desk_pet_enabled).toBe(false);
   });
 
   it('all values have correct types', () => {
     expect(typeof DEFAULT_SETTINGS.siliconflow_api_key).toBe('string');
     expect(typeof DEFAULT_SETTINGS.vision_model).toBe('string');
     expect(typeof DEFAULT_SETTINGS.report_model).toBe('string');
+    expect(typeof DEFAULT_SETTINGS.chat_model).toBe('string');
     expect(typeof DEFAULT_SETTINGS.screenshot_interval).toBe('number');
     expect(typeof DEFAULT_SETTINGS.keep_screenshots).toBe('boolean');
     expect(typeof DEFAULT_SETTINGS.auto_start_tracker).toBe('boolean');
     expect(typeof DEFAULT_SETTINGS.auto_vision_toggle).toBe('boolean');
     expect(typeof DEFAULT_SETTINGS.startup_with_windows).toBe('boolean');
+    expect(typeof DEFAULT_SETTINGS.desk_pet_enabled).toBe('boolean');
   });
 });
 
 // ===== TEMPLATES =====
 describe('TEMPLATES', () => {
-  it('contains exactly 4 templates', () => {
-    expect(TEMPLATES).toHaveLength(4);
+  it('contains exactly 2 templates', () => {
+    expect(TEMPLATES).toHaveLength(2);
   });
 
   it('includes all expected template names', () => {
-    const expected = ['成果导向日报', '工作轨迹日报', '三句话日报', 'TOP3日报'];
+    const expected = ['工作日报', '全天回顾'];
     for (const tpl of expected) {
       expect(TEMPLATES).toContain(tpl);
     }

@@ -42,6 +42,26 @@ export const IPC_CHANNELS = {
   VISION_LIST_BY_DATE: 'vision:listByDate',
   VISION_AUTO_STATUS: 'vision:autoStatus',
 
+  // 对话
+  CHAT_STREAM_START: 'chat:streamStart',
+  CHAT_STREAM_ABORT: 'chat:streamAbort',
+  CHAT_STREAM_DELTA: 'chat:streamDelta',
+  CHAT_STREAM_DONE: 'chat:streamDone',
+  CHAT_STREAM_ERROR: 'chat:streamError',
+  CHAT_MESSAGES_LIST: 'chat:messagesList',
+
+  // 桌宠
+  DESK_PET_SET_ENABLED: 'deskPet:setEnabled',
+  DESK_PET_SET_STATE: 'deskPet:setState',
+  DESK_PET_STATUS: 'deskPet:status',
+  DESK_PET_WINDOW_BEGIN_DRAG: 'deskPetWindow:beginDrag',
+  DESK_PET_WINDOW_DRAG: 'deskPetWindow:drag',
+  DESK_PET_WINDOW_BEGIN_RESIZE: 'deskPetWindow:beginResize',
+  DESK_PET_WINDOW_RESIZE: 'deskPetWindow:resize',
+  DESK_PET_WINDOW_END_GESTURE: 'deskPetWindow:endGesture',
+  DESK_PET_WINDOW_SET_CHAT_OPEN: 'deskPetWindow:setChatOpen',
+  DESK_PET_WINDOW_TOGGLE_CHAT: 'deskPetWindow:toggleChat',
+
   // 导入导出
   EXPORT_JSON: 'export:json',
   IMPORT_JSON: 'import:json',

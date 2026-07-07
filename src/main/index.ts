@@ -3,9 +3,17 @@ import { join } from 'path';
 import { DatabaseService } from './database';
 import { registerIpcHandlers, autoStartTrackerAndVision } from './ipc-handlers';
 import { createTray, destroyTray } from './tray';
+import {
+  DESK_PET_SIZE_SETTING_KEY,
+  configureDeskPetSizePersistence,
+  createDeskPetWindow,
+  destroyDeskPetWindow,
+  refreshDeskPetWindowComposite,
+} from './desk-pet-window';
 
 let mainWindow: BrowserWindow | null = null;
 let forceQuit = false;
+let deskPetCompositeRefreshTimers: NodeJS.Timeout[] = [];
 
 const isDev = !app.isPackaged;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -14,6 +22,17 @@ function getAppIconPath(): string {
   return isDev
     ? join(__dirname, '..', '..', 'src', 'renderer', 'assets', 'xiabanya-logo.ico')
     : join(process.resourcesPath, 'assets', 'xiabanya-logo.ico');
+}
+
+function scheduleDeskPetCompositeRefresh(delays = [120, 320]): void {
+  deskPetCompositeRefreshTimers.forEach((timer) => clearTimeout(timer));
+  deskPetCompositeRefreshTimers = delays.map((delay) => {
+    const timer = setTimeout(() => {
+      refreshDeskPetWindowComposite();
+      deskPetCompositeRefreshTimers = deskPetCompositeRefreshTimers.filter((activeTimer) => activeTimer !== timer);
+    }, delay);
+    return timer;
+  });
 }
 
 function createWindow(): void {
@@ -44,6 +63,14 @@ function createWindow(): void {
     }
   });
 
+  mainWindow.on('minimize', () => {
+    scheduleDeskPetCompositeRefresh();
+  });
+
+  mainWindow.on('blur', () => {
+    scheduleDeskPetCompositeRefresh([80, 220, 420]);
+  });
+
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
@@ -70,9 +97,16 @@ if (!gotSingleInstanceLock) {
       ? join(__dirname, '../../data/xiabanya.db')
       : join(app.getPath('userData'), 'xiabanya.db');
     const db = DatabaseService.getInstance(dbPath);
+    configureDeskPetSizePersistence({
+      read: () => db.getSetting(DESK_PET_SIZE_SETTING_KEY, ''),
+      write: (size) => db.setSetting(DESK_PET_SIZE_SETTING_KEY, String(size)),
+    });
 
     // 创建窗口
     createWindow();
+    if (db.getSetting('desk_pet_enabled', 'false') === 'true') {
+      createDeskPetWindow();
+    }
 
     // 注册 IPC 处理器
     registerIpcHandlers(db, mainWindow!);
@@ -105,6 +139,7 @@ if (!gotSingleInstanceLock) {
     forceQuit = true;
     // 停止 Tracker 和 Vision Auto（通过清理定时器）
     destroyTray();
+    destroyDeskPetWindow();
     // 关闭数据库连接
     DatabaseService.resetInstance();
   });

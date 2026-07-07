@@ -1,18 +1,17 @@
 import { today as todayFn } from './utils';
 import { formatLocalDate } from '../../shared/time';
 
-export { CATEGORIES, CATEGORY_COLORS, TEMPLATES, DEFAULT_SETTINGS } from '../../shared/types';
-export type { Category, ActivityRecord, Report, VisionResult, VisionResultWithDuration, VisionQuery, VisionDailySummary, RecordUpsertDTO, RecordsQuery, ReportsQuery, HeatmapCell, DailySummary } from '../../shared/types';
+export { CATEGORIES, CATEGORY_COLORS, TEMPLATES, DEFAULT_SETTINGS, DESK_PET_STATES } from '../../shared/types';
+export type { Category, ActivityRecord, Report, VisionResult, VisionResultWithDuration, VisionQuery, VisionDailySummary, DeskPetState, RecordUpsertDTO, RecordsQuery, ReportsQuery, HeatmapCell, DailySummary, ChatMessage } from '../../shared/types';
 
 export const API_BASE = 'https://api.siliconflow.cn/v1';
 export const DEFAULT_VISION_MODEL = 'Qwen/Qwen3-VL-32B-Instruct';
 export const DEFAULT_REPORT_MODEL = 'deepseek-ai/DeepSeek-V3';
+export const DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
 export const REPORT_TEMPLATES = [
-  '成果导向日报',
-  '工作轨迹日报',
-  '三句话日报',
-  'TOP3日报',
+  '工作日报',
+  '全天回顾',
 ] as const;
 
 /**

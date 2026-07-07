@@ -100,10 +100,10 @@ export function ReportPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Section 1: 报告类型 */}
+      {/* Section 1: 报告周期 */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>报告类型</Card.Title>
+          <Card.Title>报告周期</Card.Title>
         </Card.Header>
         <Card.Content>
           <div className="flex gap-3">
@@ -124,7 +124,7 @@ export function ReportPage() {
       {/* Section 2: 模板选择 */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>选择模板</Card.Title>
+          <Card.Title>选择报告用途</Card.Title>
         </Card.Header>
         <Card.Content>
           <div className="grid grid-cols-2 gap-2">
@@ -140,10 +140,8 @@ export function ReportPage() {
               >
                 <span className="font-medium">{t}</span>
                 <span className="block text-xs text-gray-400 mt-0.5">
-                  {t === '成果导向日报' && '按成果分组展示'}
-                  {t === '工作轨迹日报' && '按时间线展开'}
-                  {t === '三句话日报' && '精炼三句话总结'}
-                  {t === 'TOP3日报' && '重点展示前三项'}
+                  {t === '工作日报' && '排除娱乐、空闲、低置信内容'}
+                  {t === '全天回顾' && '包含工作、休息、娱乐的客观复盘'}
                 </span>
               </button>
             ))}
@@ -197,7 +195,7 @@ export function ReportPage() {
                 </div>
               </div>
               <p className="text-xs text-gray-400 mt-3">
-                AI 截屏识别结果将作为报告主要内容源，窗口追踪记录作为补充上下文
+                工作日报会优先使用高置信工作内容；全天回顾会保留工作、休息和娱乐等全天活动
               </p>
             </>
           ) : (
@@ -214,7 +212,7 @@ export function ReportPage() {
           loading={generating}
           onClick={handleGenerate}
         >
-          {generating ? 'AI 生成中...' : 'AI 生成报告（基于截屏识别 + 活动记录）'}
+          {generating ? 'AI 生成中...' : 'AI 生成报告'}
         </Button>
       </div>
 

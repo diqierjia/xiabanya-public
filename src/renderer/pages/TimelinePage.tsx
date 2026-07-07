@@ -84,12 +84,12 @@ export function TimelinePage() {
           }}
         />
         <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索标题/摘要/分类..."
+            placeholder="搜索标题/事实/分类..."
             className="pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm w-56"
           />
         </div>
@@ -140,7 +140,8 @@ export function TimelinePage() {
                   <th className="px-3 py-2 text-left">时间</th>
                   <th className="px-3 py-2 text-left">分类</th>
                   <th className="px-3 py-2 text-left">标题</th>
-                  <th className="px-3 py-2 text-left">摘要</th>
+                  <th className="px-3 py-2 text-left">观察事实</th>
+                  <th className="px-3 py-2 text-left">置信/类型</th>
                   <th className="px-3 py-2 text-left">时长</th>
                   <th className="px-3 py-2 text-left">模型</th>
                 </tr>
@@ -169,8 +170,11 @@ export function TimelinePage() {
                     <td className="px-3 py-2 text-gray-800 truncate max-w-[200px]">
                       {r.title}
                     </td>
-                    <td className="px-3 py-2 text-gray-500 text-xs max-w-[250px] truncate">
-                      {truncate(r.summary || '', 60)}
+                    <td className="px-3 py-2 text-gray-500 text-xs max-w-[280px] truncate">
+                      {truncate(r.observed_fact || r.summary || '', 70)}
+                    </td>
+                    <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">
+                      {(r.confidence || '-') + ' / ' + (r.activity_type || '-')}
                     </td>
                     <td className="px-3 py-2 text-gray-600 text-xs">
                       {r.approx_duration_sec > 0 ? dur(r.approx_duration_sec) : '-'}

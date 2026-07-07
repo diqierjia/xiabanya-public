@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import type { ActivityRecord, Report, VisionResult, VisionResultWithDuration, VisionQuery, TrackerSnapshot, RecordUpsertDTO, RecordsQuery, ReportsQuery } from '../shared/types';
+import type { ActivityRecord, ChatHistoryMessage, ChatMessage, ChatMessagesQuery, DeskPetState, Report, VisionResult, VisionResultWithDuration, VisionQuery, TrackerSnapshot, RecordUpsertDTO, RecordsQuery, ReportsQuery } from '../shared/types';
 
 type CallbackFn = (...args: unknown[]) => void;
 
@@ -57,6 +57,40 @@ const api = {
       ipcRenderer.on(IPC_CHANNELS.VISION_ON_RESULT, listener);
       return () => { ipcRenderer.removeListener(IPC_CHANNELS.VISION_ON_RESULT, listener); };
     },
+  },
+  chat: {
+    listMessages: (query?: ChatMessagesQuery) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_MESSAGES_LIST, query) as Promise<ChatHistoryMessage[]>,
+    startStream: (messages: ChatMessage[]) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_STREAM_START, messages) as Promise<string>,
+    abortStream: (streamId: string) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_STREAM_ABORT, streamId),
+    onDelta: (cb: (event: { streamId: string; delta: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { streamId: string; delta: string }) => cb(payload);
+      ipcRenderer.on(IPC_CHANNELS.CHAT_STREAM_DELTA, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_DELTA, listener); };
+    },
+    onDone: (cb: (event: { streamId: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { streamId: string }) => cb(payload);
+      ipcRenderer.on(IPC_CHANNELS.CHAT_STREAM_DONE, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_DONE, listener); };
+    },
+    onError: (cb: (event: { streamId: string; message: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { streamId: string; message: string }) => cb(payload);
+      ipcRenderer.on(IPC_CHANNELS.CHAT_STREAM_ERROR, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_ERROR, listener); };
+    },
+  },
+  deskPet: {
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.DESK_PET_SET_ENABLED, enabled),
+    setState: (state: DeskPetState) => ipcRenderer.invoke(IPC_CHANNELS.DESK_PET_SET_STATE, state),
+    status: () => ipcRenderer.invoke(IPC_CHANNELS.DESK_PET_STATUS) as Promise<{ enabled: boolean; visible: boolean; state: DeskPetState }>,
+  },
+  deskPetWindow: {
+    beginDrag: (point: { screenX: number; screenY: number }) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_BEGIN_DRAG, point),
+    drag: (point: { screenX: number; screenY: number }) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_DRAG, point),
+    beginResize: (point: { screenX: number; screenY: number }) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_BEGIN_RESIZE, point),
+    resize: (point: { screenX: number; screenY: number }) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_RESIZE, point),
+    endGesture: () => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_END_GESTURE),
+    setChatOpen: (open: boolean) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_SET_CHAT_OPEN, open),
+    toggleChat: () => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_TOGGLE_CHAT),
   },
   exportJson: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_JSON),
   importJson: (data: unknown) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_JSON, data) as Promise<number>,

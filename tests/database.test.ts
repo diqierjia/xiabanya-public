@@ -704,6 +704,39 @@ describe('DatabaseService', () => {
     });
   });
 
+  describe('chat messages', () => {
+    it('adds and lists chat messages in conversation order', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-06-25T01:00:00.000Z'));
+      const userId = service.addChatMessage({ role: 'user', content: '今天我做了什么？' });
+
+      vi.setSystemTime(new Date('2026-06-25T01:00:01.000Z'));
+      const assistantId = service.addChatMessage({ role: 'assistant', content: '你主要在写代码。' });
+
+      const messages = service.listChatMessages();
+      expect(messages).toHaveLength(2);
+      expect(messages[0].id).toBe(userId);
+      expect(messages[0].role).toBe('user');
+      expect(messages[1].id).toBe(assistantId);
+      expect(messages[1].role).toBe('assistant');
+    });
+
+    it('filters chat messages by content search', () => {
+      service.addChatMessage({ role: 'user', content: '整理日报素材' });
+      service.addChatMessage({ role: 'assistant', content: '可以，先看今天的工作记录。' });
+
+      const messages = service.listChatMessages({ q: '日报' });
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toContain('日报');
+    });
+
+    it('rejects empty chat message content', () => {
+      expect(() => {
+        service.addChatMessage({ role: 'user', content: '   ' });
+      }).toThrow('Chat message content cannot be empty');
+    });
+  });
+
   // ===== Export / Import =====
   describe('exportAll() / importAll()', () => {
     it('exportAll returns records and reports', () => {
@@ -783,12 +816,17 @@ describe('DatabaseService', () => {
         summary: '', raw_response: '', app: '', window_title: '',
         model: 'test',
       });
+      service.addChatMessage({
+        role: 'user',
+        content: '今天我做了什么？',
+      });
 
       service.clear();
 
       expect(service.listRecords({ start: '2000-01-01', end: '2099-12-31' })).toHaveLength(0);
       expect(service.listReports({})).toHaveLength(0);
       expect(service.listVisionResults()).toHaveLength(0);
+      expect(service.listChatMessages()).toHaveLength(0);
     });
   });
 });

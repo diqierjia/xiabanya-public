@@ -20,3 +20,5 @@ extraResources:
     to: assets/xiabanya-logo.ico
   - from: assets/xiabanya-mascot.png
     to: assets/xiabanya-mascot.png
+  - from: assets/desk-pet
+    to: assets/desk-pet

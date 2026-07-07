@@ -42,6 +42,8 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
   const timeStr = result.created_at
     ? formatUtcStorageTime(result.created_at)
     : '';
+  const observedFact = result.observed_fact || result.summary || '';
+  const possibleActivity = result.possible_activity || result.summary || '';
 
   if (variant === 'compact') {
     return (
@@ -64,14 +66,19 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
           ) : (
             <ChevronDown size={14} className="text-gray-400 shrink-0" />
           )}
-        </div>
+          </div>
         {expanded && (
           <div className="bg-gray-50 rounded-b-lg px-4 py-3 border border-gray-100 border-t-0 -mt-px">
-            {result.summary && (
-              <p className="text-xs text-gray-600 mb-2">{result.summary}</p>
+            {observedFact && (
+              <p className="text-xs text-gray-600 mb-1">事实: {observedFact}</p>
             )}
-            <div className="flex gap-4 text-xs text-gray-400">
+            {possibleActivity && (
+              <p className="text-xs text-gray-500 mb-2">推断: {possibleActivity}</p>
+            )}
+            <div className="flex gap-4 text-xs text-gray-400 flex-wrap">
               <span>应用: {result.app || '-'}</span>
+              <span>置信度: {result.confidence || '-'}</span>
+              <span>类型: {result.activity_type || '-'}</span>
               <span>模型: {result.model || '-'}</span>
             </div>
           </div>
@@ -90,7 +97,7 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
             <Badge category={result.category} />
           </div>
           <h3 className="text-sm font-semibold text-gray-800 truncate">{result.title}</h3>
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{result.summary}</p>
+          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{observedFact}</p>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           {result.approx_duration_sec > 0 && (
@@ -113,12 +120,24 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-gray-100">
+          <div className="space-y-2 mb-3">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">观察事实</p>
+              <p className="text-xs text-gray-700">{observedFact || '-'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">可能活动</p>
+              <p className="text-xs text-gray-700">{possibleActivity || '-'}</p>
+            </div>
+          </div>
           <p className="text-xs text-gray-500 mb-1">AI 原始响应:</p>
           <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-auto max-h-48 whitespace-pre-wrap">
             {result.raw_response}
           </pre>
-          <div className="flex gap-4 mt-2 text-xs text-gray-400">
+          <div className="flex gap-4 mt-2 text-xs text-gray-400 flex-wrap">
             <span>应用: {result.app || '-'}</span>
+            <span>置信度: {result.confidence || '-'}</span>
+            <span>类型: {result.activity_type || '-'}</span>
             <span>模型: {result.model || '-'}</span>
             <span>时间: {result.created_at}</span>
           </div>

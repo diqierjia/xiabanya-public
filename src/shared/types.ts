@@ -7,6 +7,13 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+// ===== Vision 结构化识别 =====
+export const VISION_CONFIDENCES = ['high', 'medium', 'low'] as const;
+export type VisionConfidence = (typeof VISION_CONFIDENCES)[number];
+
+export const ACTIVITY_TYPES = ['work', 'personal', 'idle', 'unclear'] as const;
+export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+
 // ===== 记录来源 =====
 export type RecordSource = 'auto' | 'manual' | 'vision' | 'import';
 
@@ -57,6 +64,10 @@ export interface VisionResult {
   title: string;
   category: Category;
   summary: string;
+  observed_fact?: string;
+  possible_activity?: string;
+  confidence?: VisionConfidence;
+  activity_type?: ActivityType;
   raw_response: string;
   app: string;
   window_title: string;
@@ -95,16 +106,39 @@ export interface VisionDailySummary {
   activeSpanSec: number;  // 第一条到最后一条的时间跨度（秒）
 }
 
+// ===== 桌宠 =====
+export const DESK_PET_STATES = ['idle', 'working', 'thinking', 'done', 'sleep'] as const;
+export type DeskPetState = (typeof DESK_PET_STATES)[number];
+
 // ===== 应用设置 =====
 export interface AppSettings {
   siliconflow_api_key: string;
   vision_model: string;
   report_model: string;
+  chat_model: string;
   screenshot_interval: number;
   keep_screenshots: boolean;
   auto_start_tracker: boolean;
   auto_vision_toggle: boolean;
   startup_with_windows: boolean;
+  desk_pet_enabled: boolean;
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatHistoryMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+}
+
+export interface ChatMessagesQuery {
+  q?: string;
+  limit?: number;
 }
 
 // ===== DTO =====
@@ -171,10 +205,8 @@ export const CATEGORY_COLORS: Record<Category, string> = {
 
 // ===== 报告模板 =====
 export const TEMPLATES = [
-  '成果导向日报',
-  '工作轨迹日报',
-  '三句话日报',
-  'TOP3日报',
+  '工作日报',
+  '全天回顾',
 ] as const;
 
 export type Template = (typeof TEMPLATES)[number];
@@ -184,9 +216,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   siliconflow_api_key: '',
   vision_model: 'Qwen/Qwen3-VL-32B-Instruct',
   report_model: 'deepseek-ai/DeepSeek-V3',
+  chat_model: 'deepseek-ai/DeepSeek-V4-Flash',
   screenshot_interval: 5,
   keep_screenshots: false,
   auto_start_tracker: false,
   auto_vision_toggle: false,
   startup_with_windows: false,
+  desk_pet_enabled: false,
 };

@@ -6,12 +6,13 @@ import { TimelinePage } from './pages/TimelinePage';
 import { HeatmapPage } from './pages/HeatmapPage';
 import { AppsPage } from './pages/AppsPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { ChatHistoryPage } from './pages/ChatHistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { Toaster } from './components/ui/Toast';
 import { useAppStore } from './stores/useAppStore';
 import { useXiabanyaApi } from './hooks/useXiabanyaApi';
 
-export type PageKey = 'today' | 'report' | 'timeline' | 'heatmap' | 'apps' | 'history' | 'settings';
+export type PageKey = 'today' | 'report' | 'timeline' | 'heatmap' | 'apps' | 'history' | 'chatHistory' | 'settings';
 
 const PAGE_TITLES: Record<PageKey, string> = {
   today: '今日工作台',
@@ -20,6 +21,7 @@ const PAGE_TITLES: Record<PageKey, string> = {
   heatmap: '时段热力图',
   apps: '应用记录',
   history: '历史报告',
+  chatHistory: '聊天记录',
   settings: '设置',
 };
 
@@ -30,6 +32,7 @@ const PAGE_COMPONENTS: Record<PageKey, React.FC> = {
   heatmap: HeatmapPage,
   apps: AppsPage,
   history: HistoryPage,
+  chatHistory: ChatHistoryPage,
   settings: SettingsPage,
 };
 

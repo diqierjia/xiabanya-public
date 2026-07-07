@@ -3,10 +3,18 @@ import { DatabaseService } from './database';
 import { ActivityTracker } from './tracker';
 import type { TrackerCallback } from './tracker';
 import { captureScreenshot } from './screenshot';
-import { classifyWithVision, generateReport } from './ai';
+import { classifyWithVision, generateReport, streamChatCompletion } from './ai';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import type { RecordUpsertDTO, RecordsQuery, ReportsQuery, VisionQuery } from '../shared/types';
-import { formatUtcStorageDateTime, parseUtcStorageDateTime } from '../shared/time';
+import type { ChatMessage, ChatMessagesQuery, DeskPetState, IdlePeriod, RecordUpsertDTO, RecordsQuery, ReportsQuery, VisionQuery } from '../shared/types';
+import { formatLocalDate, formatUtcStorageDateTime, formatUtcStorageTime, parseUtcStorageDateTime } from '../shared/time';
+import { randomUUID } from 'crypto';
+import {
+  getDeskPetState,
+  isDeskPetState,
+  isDeskPetWindowVisible,
+  setDeskPetEnabled,
+  setDeskPetState,
+} from './desk-pet-window';
 
 let tracker: ActivityTracker | null = null;
 let visionTimer: ReturnType<typeof setInterval> | null = null;
@@ -18,6 +26,8 @@ let visionAutoAbortController: AbortController | null = null;
 let visionAutoIntervalMinutes = 5;
 let idleState: 'active' | 'idle' = 'active';
 let currentIdlePeriodId: string | null = null;
+let deskPetResumeTimer: ReturnType<typeof setTimeout> | null = null;
+const chatStreamAbortControllers = new Map<string, AbortController>();
 
 const IDLE_THRESHOLD_SECONDS = 300;
 const IDLE_PROBE_INTERVAL_MS = 5 * 1000;
@@ -25,6 +35,35 @@ const RESUME_CAPTURE_DELAY_MS = 30 * 1000;
 
 /** v2.2: 缓存 tracker 最近一次快照的 app/title，供 Vision Auto 截图时使用 */
 let lastTrackerContext: { app: string; title: string } = { app: '截图', title: '自动识别' };
+
+function clearDeskPetResumeTimer(): void {
+  if (deskPetResumeTimer) {
+    clearTimeout(deskPetResumeTimer);
+    deskPetResumeTimer = null;
+  }
+}
+
+function syncDeskPetWorkflowState(): void {
+  clearDeskPetResumeTimer();
+  if (idleState === 'idle') {
+    setDeskPetState('sleep');
+  } else if (visionCaptureInFlight) {
+    setDeskPetState('thinking');
+  } else if (tracker?.isRunning || visionTimer !== null) {
+    setDeskPetState('working');
+  } else {
+    setDeskPetState('idle');
+  }
+}
+
+function showDeskPetDoneThenResume(delayMs = 1600): void {
+  clearDeskPetResumeTimer();
+  setDeskPetState('done');
+  deskPetResumeTimer = setTimeout(() => {
+    deskPetResumeTimer = null;
+    syncDeskPetWorkflowState();
+  }, delayMs);
+}
 
 function getApiKey(db: DatabaseService): string {
   return db.getSetting('siliconflow_api_key', '');
@@ -36,6 +75,47 @@ function getVisionModel(db: DatabaseService): string {
 
 function getReportModel(db: DatabaseService): string {
   return db.getSetting('report_model', 'deepseek-ai/DeepSeek-V3');
+}
+
+function getChatModel(db: DatabaseService): string {
+  return db.getSetting('chat_model', 'deepseek-ai/DeepSeek-V4-Flash');
+}
+
+function formatIdleForChat(period: IdlePeriod): string {
+  const start = formatUtcStorageTime(period.start_at);
+  const end = period.end_at ? formatUtcStorageTime(period.end_at) : '当前';
+  return `${start}-${end} 离开电脑`;
+}
+
+function buildDeskPetChatContext(db: DatabaseService): string {
+  const today = formatLocalDate();
+  const visionResults = db.listVisionResultsByDate({ start: today, end: today, limit: 20 });
+  const records = db.listRecords({ start: today, end: today, limit: 20 });
+  const idlePeriods = db.listIdlePeriodsByDateRange({ start: today, end: today, limit: 10 });
+
+  const parts: string[] = [`日期: ${today}`];
+  if (visionResults.length > 0) {
+    parts.push(
+      `AI 截屏识别摘要:\n${visionResults
+        .map((item, index) => `${index + 1}. [${formatUtcStorageTime(item.created_at)}] ${item.title} (${item.category}, ${item.confidence || 'medium'}, ${item.activity_type || 'unclear'}) - ${item.observed_fact || item.summary}`)
+        .join('\n')}`
+    );
+  }
+  if (records.length > 0) {
+    parts.push(
+      `窗口追踪记录:\n${records
+        .map((item, index) => `${index + 1}. [${formatUtcStorageTime(item.start_at)}-${formatUtcStorageTime(item.end_at)}] ${item.title} (${item.category}, ${item.app})`)
+        .join('\n')}`
+    );
+  }
+  if (idlePeriods.length > 0) {
+    parts.push(`空闲时段:\n${idlePeriods.map((item) => `- ${formatIdleForChat(item)}`).join('\n')}`);
+  }
+  if (parts.length === 1) {
+    parts.push('今天还没有可用的识别或追踪记录。');
+  }
+
+  return parts.join('\n\n');
 }
 
 function normalizeScreenshotInterval(interval: unknown): number {
@@ -94,6 +174,7 @@ function enterIdle(db: DatabaseService, mainWindow: BrowserWindow, idleSeconds: 
 
   clearResumeCaptureTimer();
   abortInFlightVisionCapture();
+  syncDeskPetWorkflowState();
 
   if (!idleProbeTimer) {
     idleProbeTimer = setInterval(() => {
@@ -125,6 +206,7 @@ function exitIdleAndScheduleResumeCapture(db: DatabaseService, mainWindow: Brows
   clearIdleProbeTimer();
   clearResumeCaptureTimer();
   startVisionTimer(db, mainWindow, visionAutoIntervalMinutes);
+  syncDeskPetWorkflowState();
 
   const runToken = visionAutoRunToken;
   resumeCaptureTimer = setTimeout(() => {
@@ -220,8 +302,10 @@ async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWin
   }
 
   visionCaptureInFlight = true;
+  syncDeskPetWorkflowState();
   const abortController = new AbortController();
   visionAutoAbortController = abortController;
+  let completed = false;
   try {
     if (visionTimer === null || runToken !== visionAutoRunToken) return;
 
@@ -250,6 +334,10 @@ async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWin
       title: result.title,
       category: result.category as any,
       summary: result.summary,
+      observed_fact: result.observed_fact,
+      possible_activity: result.possible_activity,
+      confidence: result.confidence,
+      activity_type: result.activity_type,
       raw_response: JSON.stringify(result),
       app: ctxApp,
       window_title: ctxTitle,
@@ -258,12 +346,17 @@ async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWin
     const vr = db.listVisionResults(1)[0];
     if (vr) {
       mainWindow.webContents.send(IPC_CHANNELS.VISION_ON_RESULT, vr);
+      completed = true;
+      showDeskPetDoneThenResume();
     }
   } finally {
     if (visionAutoAbortController === abortController) {
       visionAutoAbortController = null;
     }
     visionCaptureInFlight = false;
+    if (!completed) {
+      syncDeskPetWorkflowState();
+    }
   }
 }
 
@@ -274,6 +367,7 @@ function startVisionAuto(db: DatabaseService, mainWindow: BrowserWindow, interva
   idleState = 'active';
   currentIdlePeriodId = null;
   startVisionTimer(db, mainWindow, minutes);
+  syncDeskPetWorkflowState();
   return minutes;
 }
 
@@ -287,6 +381,28 @@ function stopVisionAuto(): void {
   if (visionTimer) {
     clearInterval(visionTimer);
     visionTimer = null;
+  }
+  syncDeskPetWorkflowState();
+}
+
+function sendToChatSender(sender: Electron.WebContents, channel: string, payload: unknown): void {
+  if (sender.isDestroyed()) return;
+  sender.send(channel, payload);
+}
+
+function getLatestUserChatMessage(messages: ChatMessage[]): ChatMessage | undefined {
+  return [...messages].reverse().find((message) => (
+    message.role === 'user' &&
+    typeof message.content === 'string' &&
+    message.content.trim().length > 0
+  ));
+}
+
+function tryAddChatMessage(db: DatabaseService, message: { role: 'user' | 'assistant'; content: string }): void {
+  try {
+    db.addChatMessage(message);
+  } catch (error) {
+    console.warn('[Chat] Failed to persist chat message:', error);
   }
 }
 
@@ -343,47 +459,57 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
 
   // v2.2: REPORTS_GENERATE — 双数据源：vision_results（主）+ records（辅）
   ipcMain.handle(IPC_CHANNELS.REPORTS_GENERATE, async (_e, params) => {
-    const { report_type, template, start_date, end_date } = params;
-    const apiKey = getApiKey(db);
-    const model = getReportModel(db);
+    setDeskPetState('thinking');
+    let completed = false;
+    try {
+      const { report_type, template, start_date, end_date } = params;
+      const apiKey = getApiKey(db);
+      const model = getReportModel(db);
 
-    if (!apiKey) throw new Error('请先配置 SiliconFlow API Key');
+      if (!apiKey) throw new Error('请先配置 SiliconFlow API Key');
 
-    const visionResults = db.listVisionResultsByDate({
-      start: start_date,
-      end: end_date,
-      limit: 500,
-    });
-    const records = db.listRecords({
-      start: start_date,
-      end: end_date,
-      limit: 500,
-    });
-    const idlePeriods = db.listIdlePeriodsByDateRange({
-      start: start_date,
-      end: end_date,
-      limit: 100,
-    });
+      const visionResults = db.listVisionResultsByDate({
+        start: start_date,
+        end: end_date,
+        limit: 500,
+      });
+      const records = db.listRecords({
+        start: start_date,
+        end: end_date,
+        limit: 500,
+      });
+      const idlePeriods = db.listIdlePeriodsByDateRange({
+        start: start_date,
+        end: end_date,
+        limit: 100,
+      });
 
-    const content = await generateReport(apiKey, model, {
-      visionResults,
-      records,
-      idlePeriods,
-      template,
-      reportType: report_type,
-      startDate: start_date,
-      endDate: end_date,
-    });
+      const content = await generateReport(apiKey, model, {
+        visionResults,
+        records,
+        idlePeriods,
+        template,
+        reportType: report_type,
+        startDate: start_date,
+        endDate: end_date,
+      });
 
-    const id = db.createReport({
-      report_type,
-      template,
-      start_date,
-      end_date,
-      content,
-    });
+      const id = db.createReport({
+        report_type,
+        template,
+        start_date,
+        end_date,
+        content,
+      });
 
-    return db.getReport(id);
+      completed = true;
+      showDeskPetDoneThenResume();
+      return db.getReport(id);
+    } finally {
+      if (!completed) {
+        syncDeskPetWorkflowState();
+      }
+    }
   });
 
   // ===== Settings =====
@@ -393,6 +519,10 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET, (_e, key: string, value: string) => {
     db.setSetting(key, value);
+    if (key === 'desk_pet_enabled') {
+      setDeskPetEnabled(value === 'true');
+      syncDeskPetWorkflowState();
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_ALL, () => {
@@ -403,6 +533,29 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
     return getApiKey(db);
   });
 
+  // ===== Desk Pet =====
+  ipcMain.handle(IPC_CHANNELS.DESK_PET_SET_ENABLED, (_e, enabled: boolean) => {
+    const nextEnabled = Boolean(enabled);
+    db.setSetting('desk_pet_enabled', String(nextEnabled));
+    setDeskPetEnabled(nextEnabled);
+    syncDeskPetWorkflowState();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESK_PET_SET_STATE, (_e, state: DeskPetState) => {
+    if (!isDeskPetState(state)) {
+      throw new Error(`Invalid desk pet state: ${String(state)}`);
+    }
+    setDeskPetState(state);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESK_PET_STATUS, () => {
+    return {
+      enabled: db.getSetting('desk_pet_enabled', 'false') === 'true',
+      visible: isDeskPetWindowVisible(),
+      state: getDeskPetState(),
+    };
+  });
+
   // ===== Tracker =====
   const handleTrackerEvent = createTrackerCallback(db, mainWindow);
 
@@ -411,6 +564,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       tracker = new ActivityTracker(mainWindow);
     }
     tracker.start(handleTrackerEvent);
+    syncDeskPetWorkflowState();
   });
 
   ipcMain.handle(IPC_CHANNELS.TRACKER_STOP, () => {
@@ -418,6 +572,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       tracker.stop();
       tracker = null;
     }
+    syncDeskPetWorkflowState();
   });
 
   ipcMain.handle(IPC_CHANNELS.TRACKER_STATUS, () => {
@@ -426,44 +581,60 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
 
   // ===== Vision =====
   ipcMain.handle(IPC_CHANNELS.VISION_ANALYZE_ONCE, async () => {
+    setDeskPetState('thinking');
+    let completed = false;
     const apiKey = getApiKey(db);
     const model = getVisionModel(db);
-    if (!apiKey) throw new Error('请先配置 API Key');
+    try {
+      if (!apiKey) throw new Error('请先配置 API Key');
 
-    const buf = await captureScreenshot(mainWindow);
-    const base64 = buf.toString('base64');
+      const buf = await captureScreenshot(mainWindow);
+      const base64 = buf.toString('base64');
 
-    const ctxApp = lastTrackerContext.app || '截图';
-    const ctxTitle = lastTrackerContext.title || '截图识别';
+      const ctxApp = lastTrackerContext.app || '截图';
+      const ctxTitle = lastTrackerContext.title || '截图识别';
 
-    const result = await classifyWithVision(apiKey, model, base64, ctxApp, ctxTitle);
-    const id = db.addVisionResult({
-      record_id: '',
-      title: result.title,
-      category: result.category as any,
-      summary: result.summary,
-      raw_response: JSON.stringify(result),
-      app: ctxApp,
-      window_title: ctxTitle,
-      model,
-    });
+      const result = await classifyWithVision(apiKey, model, base64, ctxApp, ctxTitle);
+      const id = db.addVisionResult({
+        record_id: '',
+        title: result.title,
+        category: result.category as any,
+        summary: result.summary,
+        observed_fact: result.observed_fact,
+        possible_activity: result.possible_activity,
+        confidence: result.confidence,
+        activity_type: result.activity_type,
+        raw_response: JSON.stringify(result),
+        app: ctxApp,
+        window_title: ctxTitle,
+        model,
+      });
 
-    const vr = db.listVisionResults(1)[0];
-    if (vr) {
-      mainWindow.webContents.send(IPC_CHANNELS.VISION_ON_RESULT, vr);
+      const vr = db.listVisionResults(1)[0];
+      if (vr) {
+        mainWindow.webContents.send(IPC_CHANNELS.VISION_ON_RESULT, vr);
+      }
+      completed = true;
+      showDeskPetDoneThenResume();
+      return id;
+    } finally {
+      if (!completed) {
+        syncDeskPetWorkflowState();
+      }
     }
-    return id;
   });
 
   ipcMain.handle(IPC_CHANNELS.VISION_START_AUTO, (_e, interval: number) => {
     const minutes = startVisionAuto(db, mainWindow, interval);
     db.setSetting('screenshot_interval', String(minutes));
     db.setSetting('auto_vision_toggle', 'true');
+    syncDeskPetWorkflowState();
   });
 
   ipcMain.handle(IPC_CHANNELS.VISION_STOP_AUTO, () => {
     stopVisionAuto();
     db.setSetting('auto_vision_toggle', 'false');
+    syncDeskPetWorkflowState();
   });
 
   ipcMain.handle(IPC_CHANNELS.VISION_RESULTS, (_e, limit?: number) => {
@@ -486,6 +657,77 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
   // v2.2: Vision Auto 运行状态
   ipcMain.handle(IPC_CHANNELS.VISION_AUTO_STATUS, () => {
     return { running: visionTimer !== null };
+  });
+
+  // ===== Chat =====
+  ipcMain.handle(IPC_CHANNELS.CHAT_MESSAGES_LIST, (_event, query?: ChatMessagesQuery) => {
+    return db.listChatMessages({
+      q: query?.q || undefined,
+      limit: query?.limit ?? 500,
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_STREAM_START, async (event, messages: ChatMessage[]) => {
+    const streamId = randomUUID();
+    const abortController = new AbortController();
+    chatStreamAbortControllers.set(streamId, abortController);
+    setDeskPetState('thinking');
+    let assistantContent = '';
+
+    const sender = event.sender;
+    const apiKey = getApiKey(db);
+    if (!apiKey) {
+      chatStreamAbortControllers.delete(streamId);
+      syncDeskPetWorkflowState();
+      throw new Error('请先配置 SiliconFlow API Key');
+    }
+
+    const latestUserMessage = getLatestUserChatMessage(messages);
+    if (latestUserMessage) {
+      tryAddChatMessage(db, { role: 'user', content: latestUserMessage.content });
+    }
+
+    streamChatCompletion(
+      apiKey,
+      getChatModel(db),
+      messages,
+      buildDeskPetChatContext(db),
+      (delta) => {
+        assistantContent += delta;
+        sendToChatSender(sender, IPC_CHANNELS.CHAT_STREAM_DELTA, { streamId, delta });
+      },
+      abortController.signal
+    )
+      .then(() => {
+        if (assistantContent.trim()) {
+          tryAddChatMessage(db, { role: 'assistant', content: assistantContent });
+        }
+        sendToChatSender(sender, IPC_CHANNELS.CHAT_STREAM_DONE, { streamId });
+        showDeskPetDoneThenResume(1200);
+      })
+      .catch((error) => {
+        if (!abortController.signal.aborted) {
+          sendToChatSender(sender, IPC_CHANNELS.CHAT_STREAM_ERROR, {
+            streamId,
+            message: error?.message || '下班鸭暂时没能回复。',
+          });
+        }
+        syncDeskPetWorkflowState();
+      })
+      .finally(() => {
+        chatStreamAbortControllers.delete(streamId);
+      });
+
+    return streamId;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_STREAM_ABORT, (_event, streamId: string) => {
+    const abortController = chatStreamAbortControllers.get(streamId);
+    if (abortController) {
+      abortController.abort();
+      chatStreamAbortControllers.delete(streamId);
+      syncDeskPetWorkflowState();
+    }
   });
 
   // ===== Export/Import =====
@@ -527,4 +769,6 @@ export function autoStartTrackerAndVision(db: DatabaseService, mainWindow: Brows
   if (autoVisionSetting === 'true') {
     startVisionAuto(db, mainWindow, db.getSetting('screenshot_interval', '5'));
   }
+
+  syncDeskPetWorkflowState();
 }
