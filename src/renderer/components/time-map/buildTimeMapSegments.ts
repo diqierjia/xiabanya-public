@@ -64,14 +64,6 @@ function textLooksRelated(a?: string, b?: string): boolean {
   return rightTokens.some((token) => leftTokens.has(token));
 }
 
-function firstIdleOverlapStart(startMs: number, endMs: number, idleItems: TimedItem[]): number | null {
-  for (const idle of idleItems) {
-    if (startMs >= idle.startMs && startMs < idle.endMs) return startMs;
-    if (idle.startMs > startMs && idle.startMs < endMs) return idle.startMs;
-  }
-  return null;
-}
-
 function clipRange(startMs: number, endMs: number, visibleStartMs?: number, visibleEndMs?: number): { startMs: number; endMs: number } | null {
   const clippedStartMs = visibleStartMs === undefined ? startMs : Math.max(startMs, visibleStartMs);
   const clippedEndMs = visibleEndMs === undefined ? endMs : Math.min(endMs, visibleEndMs);
@@ -79,12 +71,11 @@ function clipRange(startMs: number, endMs: number, visibleStartMs?: number, visi
   return { startMs: clippedStartMs, endMs: clippedEndMs };
 }
 
-function toTimedActivity(item: TimeMapItem, idleItems: TimedItem[], visibleStartMs?: number, visibleEndMs?: number): TimedItem | null {
+function toTimedActivity(item: TimeMapItem, visibleStartMs?: number, visibleEndMs?: number): TimedItem | null {
   const originalStartMs = toMs(item.startAt);
   if (originalStartMs === null) return null;
   const rawEndMs = originalStartMs + Math.max(0, item.durationSec) * 1000;
-  const idleStart = firstIdleOverlapStart(originalStartMs, rawEndMs, idleItems);
-  const clipped = clipRange(originalStartMs, idleStart ?? rawEndMs, visibleStartMs, visibleEndMs);
+  const clipped = clipRange(originalStartMs, rawEndMs, visibleStartMs, visibleEndMs);
   if (!clipped) return null;
   const { startMs, endMs } = clipped;
   const clippedDuration = durationSec(startMs, endMs);
@@ -221,7 +212,7 @@ export function buildTimeMapSegments(
     .sort((a, b) => a.startMs - b.startMs);
 
   const activities = activityItems
-    .map((item) => toTimedActivity(item, idleItems, visibleStartMs, visibleEndMs))
+    .map((item) => toTimedActivity(item, visibleStartMs, visibleEndMs))
     .filter((item): item is TimedItem => item !== null);
 
   const baseItems = [...activities, ...idleItems].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);

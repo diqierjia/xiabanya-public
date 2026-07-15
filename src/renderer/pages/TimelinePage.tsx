@@ -187,14 +187,6 @@ function textLooksRelated(a?: string, b?: string): boolean {
     .some((token) => leftTokens.has(token));
 }
 
-function firstIdleOverlapStart(startMs: number, endMs: number, idleItems: TimedWeekItem[]): number | null {
-  for (const idle of idleItems) {
-    if (startMs >= idle.startMs && startMs < idle.endMs) return startMs;
-    if (idle.startMs > startMs && idle.startMs < endMs) return idle.startMs;
-  }
-  return null;
-}
-
 function clipRange(startMs: number, endMs: number, windowStartMs: number, windowEndMs: number) {
   const clippedStartMs = Math.max(startMs, windowStartMs);
   const clippedEndMs = Math.min(endMs, windowEndMs);
@@ -236,13 +228,12 @@ function toTimedIdle(period: IdlePeriod, nowMs: number, windowStartMs: number, w
   };
 }
 
-function toTimedActivity(item: TimeMapItem, idleItems: TimedWeekItem[], windowStartMs: number, windowEndMs: number): TimedWeekItem | null {
+function toTimedActivity(item: TimeMapItem, windowStartMs: number, windowEndMs: number): TimedWeekItem | null {
   const start = parseUtcStorageDateTime(item.startAt);
   if (!start) return null;
   const rawStartMs = start.getTime();
   const rawEndMs = rawStartMs + Math.max(0, item.durationSec) * 1000;
-  const idleStart = firstIdleOverlapStart(rawStartMs, rawEndMs, idleItems);
-  const clipped = clipRange(rawStartMs, idleStart ?? rawEndMs, windowStartMs, windowEndMs);
+  const clipped = clipRange(rawStartMs, rawEndMs, windowStartMs, windowEndMs);
   if (!clipped) return null;
   return {
     ...item,
@@ -538,7 +529,7 @@ function buildWeekDayItems(dateStr: string, activities: TimeMapItem[], idlePerio
     .filter((item): item is TimedWeekItem => item !== null)
     .sort((a, b) => a.startMs - b.startMs));
   const activityItems = dayResults
-    .map((item) => toTimedActivity(item, idleItems, windowStartMs, windowEndMs))
+    .map((item) => toTimedActivity(item, windowStartMs, windowEndMs))
     .filter((item): item is TimedWeekItem => item !== null);
   const absorbed = absorbVisionIdleIntoIdleBands(idleItems, activityItems);
   const items = mergeDayItems([...absorbed.activityItems, ...absorbed.idleItems].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs));

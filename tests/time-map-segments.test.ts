@@ -114,7 +114,7 @@ describe('buildTimeMapSegments()', () => {
     expect(segments).toHaveLength(2);
   });
 
-  it('keeps idle as a hard boundary and clips the previous activity duration', () => {
+  it('keeps real activity visible when it overlaps a system idle band', () => {
     const idlePeriods: IdlePeriod[] = [{
       id: 'idle-1',
       start_at: '2026-07-08 01:05:00',
@@ -136,8 +136,23 @@ describe('buildTimeMapSegments()', () => {
     ], idlePeriods);
 
     expect(segments.map((item) => item.kind)).toEqual(['activity', 'idle', 'activity']);
-    expect(segments[0].durationSec).toBe(300);
+    expect(segments[0].durationSec).toBe(1800);
     expect(segments[1].title).toBe('离开电脑');
+  });
+
+  it('does not discard an activity that starts inside an open idle period', () => {
+    const idlePeriods: IdlePeriod[] = [{
+      id: 'idle-open',
+      start_at: '2026-07-08 01:00:00',
+      end_at: null,
+      created_at: '2026-07-08 01:00:00',
+    }];
+    const segments = buildTimeMapSegments([
+      activity('inside-idle', '2026-07-08 01:10:00', { durationSec: 300 }),
+    ], idlePeriods);
+
+    expect(segments.map((item) => item.kind)).toEqual(['idle', 'activity']);
+    expect(segments[1]).toMatchObject({ id: 'inside-idle', durationSec: 300 });
   });
 
   it('clips overnight idle to the default 08:00 workday start', () => {

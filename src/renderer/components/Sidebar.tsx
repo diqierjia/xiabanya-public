@@ -72,7 +72,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           <Settings size={18} />
           <span>设置</span>
         </button>
-        <span className="text-xs text-gray-600">v2.3</span>
+        <span className="text-xs text-gray-600">v2.6.2</span>
       </div>
     </aside>
   );
