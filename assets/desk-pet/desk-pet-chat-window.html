@@ -734,10 +734,11 @@
           }
           const row = document.createElement('div');
           row.className = 'message-row user';
-          const avatar = document.createElement('span');
+          const avatar = document.createElement('img');
           avatar.className = 'message-avatar user-avatar';
-          avatar.textContent = '我';
-          avatar.setAttribute('aria-label', '我');
+          avatar.src = './user-avatar-daniel-wu.png';
+          avatar.alt = '我';
+          avatar.draggable = false;
           row.appendChild(bubble);
           row.appendChild(avatar);
           messagesEl.appendChild(row);

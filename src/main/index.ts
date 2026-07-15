@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu } from 'electron';
 import { join } from 'path';
 import { DatabaseService } from './database';
+import { migrateLegacyDatabaseIfNeeded } from './legacy-db-migration';
 import { registerIpcHandlers, autoStartTrackerAndVision } from './ipc-handlers';
 import { createTray, destroyTray } from './tray';
 import { DEFAULT_SETTINGS } from '../shared/types';
@@ -119,13 +120,22 @@ if (!gotSingleInstanceLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     // 隐藏默认菜单栏
     Menu.setApplicationMenu(null);
     // 初始化数据库 — 开发模式放项目 data/ 目录，打包后放系统 userData
     const dbPath = isDev
       ? join(__dirname, '../../data/xiabanya.db')
       : join(app.getPath('userData'), 'xiabanya.db');
+    if (!isDev) {
+      const migration = await migrateLegacyDatabaseIfNeeded(dbPath, [
+        join(app.getPath('documents'), '下班鸭', 'v2', 'xiabanya-electron', 'data', 'xiabanya.db'),
+        join(process.cwd(), 'data', 'xiabanya.db'),
+      ]);
+      if (migration.migrated) {
+        console.info('[数据迁移] 已从旧数据库恢复历史记录。');
+      }
+    }
     const db = DatabaseService.getInstance(dbPath);
     configureDeskPetSizePersistence({
       read: () => db.getSetting(DESK_PET_SIZE_SETTING_KEY, ''),
