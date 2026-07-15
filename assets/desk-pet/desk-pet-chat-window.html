@@ -92,10 +92,45 @@
       user-select: text;
     }
 
-    .message.assistant {
+    .message-row {
       align-self: flex-start;
-      background: #edf7f2;
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      max-width: 94%;
+    }
+
+    .message-row .message {
+      max-width: none;
+      min-width: 0;
+    }
+
+    .message-stack {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .message-avatar {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      border-radius: 999px;
+      border: 1px solid rgba(240, 207, 99, 0.8);
+      background: #fff8dc;
+      box-shadow: 0 2px 8px rgba(38, 50, 56, 0.12);
+      object-fit: cover;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    .message.assistant {
+      background: #fff2b8;
       color: #263238;
+      border: 1px solid #f0cf63;
       border-bottom-left-radius: 5px;
     }
 
@@ -106,11 +141,43 @@
       border-bottom-right-radius: 5px;
     }
 
+    .message.user.queued {
+      background: #455a64;
+    }
+
+    .message-queue-state {
+      display: block;
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 10px;
+    }
+
     .message.error {
-      align-self: flex-start;
       background: #fff0f0;
       color: #b42318;
       border-bottom-left-radius: 5px;
+    }
+
+    .retry-button {
+      border: 1px solid rgba(180, 35, 24, 0.22);
+      background: #fffafa;
+      color: #9f2a22;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      line-height: 1.2;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(38, 50, 56, 0.08);
+    }
+
+    .retry-button:hover {
+      background: #fff3f1;
+      border-color: rgba(180, 35, 24, 0.38);
+    }
+
+    .retry-button:disabled {
+      cursor: default;
+      opacity: 0.55;
     }
 
     .message.streaming::after {
@@ -126,6 +193,84 @@
 
     @keyframes blink {
       50% { opacity: 0; }
+    }
+
+    @keyframes thinking-dot-bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1.3); opacity: 1; }
+    }
+
+    .thinking-bubble.message {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      max-width: 100%;
+    }
+
+    .thinking-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: #455a64;
+      cursor: pointer;
+      text-align: left;
+      user-select: none;
+    }
+
+    .thinking-toggle:hover {
+      color: #1f5f3b;
+    }
+
+    .thinking-toggle:disabled {
+      cursor: default;
+      color: #455a64;
+    }
+
+    .thinking-caret {
+      width: 12px;
+      flex: 0 0 12px;
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .thinking-text {
+      font-size: 13px;
+      color: #455a64;
+    }
+
+    .thinking-detail {
+      max-height: 96px;
+      overflow: auto;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.58);
+      color: #546e7a;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      user-select: text;
+    }
+
+    .thinking-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-left: 1px;
+    }
+
+    .thinking-dots .dot {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background-color: #90a4ae;
+      animation: thinking-dot-bounce 1.4s ease-in-out infinite;
     }
 
     .quick-prompts {
@@ -189,6 +334,212 @@
       opacity: 0.55;
       cursor: not-allowed;
     }
+
+    /* 微信式桌宠聊天：保留现有流式与队列行为，仅替换呈现与输入层。 */
+    button, input, textarea { font: inherit; }
+
+    .chat-panel {
+      grid-template-rows: 40px 1fr auto;
+      gap: 0;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 10px;
+      background: #f7f7f7;
+      box-shadow: 0 16px 44px rgba(38, 50, 56, 0.20);
+      backdrop-filter: none;
+    }
+
+    .chat-header {
+      min-height: 40px;
+      padding: 0 10px 0 14px;
+      border-bottom: 1px solid #e9e9e9;
+      background: rgba(255, 255, 255, 0.94);
+    }
+
+    .chat-title {
+      position: absolute;
+      left: 52px;
+      right: 52px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      color: #191919;
+    }
+
+    .chat-close {
+      width: 30px;
+      height: 30px;
+      margin-left: auto;
+      border-radius: 6px;
+      background: transparent;
+      color: #888;
+    }
+
+    .chat-close:hover { background: #f1f1f1; color: #333; }
+
+    .messages {
+      gap: 10px;
+      padding: 14px 12px 12px;
+      background: #f7f7f7;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    .messages::before {
+      content: '';
+      flex: 1 0 0;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .message {
+      max-width: 80%;
+      border-radius: 5px;
+      line-height: 1.5;
+    }
+
+    .message-row { gap: 8px; max-width: 92%; }
+    .message-row.user { align-self: flex-end; flex-direction: row; }
+
+    .message-avatar {
+      width: 34px;
+      height: 34px;
+      flex-basis: 34px;
+      border: 0;
+      border-radius: 5px;
+      box-shadow: none;
+    }
+
+    .message.assistant { background: #fff; color: #191919; border: 0; }
+    .message.user { background: #95ec69; color: #191919; }
+    .message.user.queued { background: #c7efb4; }
+    .message-queue-state { color: rgba(25, 25, 25, 0.54); }
+    .message.error { background: #fff; border-bottom-left-radius: 5px; }
+
+    .thinking-bubble.message { padding: 6px 8px; background: transparent; color: #999; }
+    .thinking-toggle, .thinking-toggle:disabled, .thinking-text { color: #999; }
+    .thinking-toggle:hover { color: #666; }
+
+    .chat-composer {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 8px;
+      min-height: 84px;
+      padding: 8px 10px;
+      border-top: 1px solid #e9e9e9;
+      background: #fff;
+    }
+
+    .screen-question-shortcut {
+      flex: 0 0 100%;
+      width: fit-content;
+      height: 26px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 999px;
+      background: #edf8f0;
+      color: #168343;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .screen-question-shortcut:hover { background: #dcf3e2; }
+    .screen-question-shortcut:disabled { opacity: .55; cursor: wait; }
+
+    .quick-actions-toggle {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #6d6d6d;
+      font-size: 25px;
+      font-weight: 300;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .quick-actions-toggle:hover { background: #f2f2f2; color: #222; }
+
+    .quick-prompts {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 10px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      width: 232px;
+      padding: 8px;
+      border: 1px solid rgba(0, 0, 0, 0.10);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    }
+
+    .quick-prompts[hidden] { display: none; }
+
+    .quick-prompts button {
+      min-width: 0;
+      border: 0;
+      border-radius: 5px;
+      background: #f5f5f5;
+      color: #333;
+      padding: 8px 7px;
+    }
+
+    .quick-prompts button:hover { background: #ebebeb; border-color: transparent; color: #333; }
+
+    .chat-form { display: flex; flex: 1; align-items: flex-end; gap: 8px; }
+
+    .chat-input {
+      min-height: 34px;
+      max-height: 76px;
+      flex: 1;
+      height: auto;
+      border-color: #e2e2e2;
+      border-radius: 5px;
+      padding: 7px 9px;
+      color: #191919;
+      line-height: 1.45;
+      resize: none;
+    }
+
+    .chat-input:focus { border-color: #b8b8b8; box-shadow: none; }
+
+    .send-button {
+      min-width: 52px;
+      border-radius: 5px;
+      background: #07c160;
+      font-weight: 500;
+    }
+
+    .message-avatar.user-avatar {
+      display: grid;
+      place-items: center;
+      background: #dcefd7;
+      color: #447445;
+      font-size: 13px;
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    .time-divider {
+      align-self: center;
+      margin: 2px 0;
+      color: #b2b2b2;
+      font-size: 11px;
+      line-height: 1;
+    }
   </style>
 </head>
 <body>
@@ -198,15 +549,20 @@
       <button class="chat-close" type="button" aria-label="关闭对话">x</button>
     </div>
     <div class="messages"></div>
-    <div class="quick-prompts">
-      <button type="button" data-prompt="今天过得怎么样？">聊两句</button>
-      <button type="button" data-prompt="今天我主要做了什么？">今天做了啥</button>
-      <button type="button" data-prompt="帮我整理一下今日日报素材。">整理日报</button>
+    <div class="chat-composer">
+      <button class="screen-question-shortcut" type="button">看图问鸭</button>
+      <button class="quick-actions-toggle" type="button" aria-label="快捷动作" aria-expanded="false">＋</button>
+      <div class="quick-prompts" hidden>
+        <button type="button" data-prompt="今天我主要做了什么？">今天做了啥</button>
+        <button type="button" data-prompt="下班前叫我整理一下">下班前叫我</button>
+        <button type="button" data-prompt="如果我刷太久，轻轻提醒我一下">刷久提醒我</button>
+        <button type="button" data-prompt="别烦我了">别烦我了</button>
+      </div>
+      <form class="chat-form">
+        <textarea class="chat-input" rows="1" maxlength="500" autocomplete="off"></textarea>
+        <button class="send-button" type="submit">发送</button>
+      </form>
     </div>
-    <form class="chat-form">
-      <input class="chat-input" maxlength="500" placeholder="和下班鸭说两句..." autocomplete="off">
-      <button class="send-button" type="submit">发送</button>
-    </form>
   </section>
   <script>
     const hostWindow = window.xiabanyaApi && window.xiabanyaApi.deskPetWindow;
@@ -216,35 +572,389 @@
     const chatForm = document.querySelector('.chat-form');
     const chatInput = document.querySelector('.chat-input');
     const sendButton = document.querySelector('.send-button');
+    const quickActionsToggle = document.querySelector('.quick-actions-toggle');
+    const quickPrompts = document.querySelector('.quick-prompts');
+    const screenQuestionButton = document.querySelector('.screen-question-shortcut');
+    const assistantAvatarSrc = './xiaohuangya-chat-avatar.png';
     let activeStreamId = null;
     let activeAssistantMessage = null;
-    const messages = [
-      {
-        role: 'assistant',
-        content: '我在这儿。想聊天也行，想收拾一下今天的工作也行。',
-      },
-    ];
+    let activeAssistantParts = [];
+    let activeAssistantBuffer = '';
+    let activeAssistantRawContent = '';
+    let activeAssistantCreatedAt = '';
+    let activeThinkingBubble = null;
+    let thinkingElapsedTimer = null;
+    const mirroredStreams = new Map();
+    const pendingUserMessages = [];
+    const pendingScreenQuestions = new Map();
+    let activeUserText = '';
+    const bubbleDelimiterPattern = /(\n\s*\n+|[ \t\u00a0\u3000]{2,})/;
+    const sentenceEndPattern = /[。！？!?]/g;
+    const messages = [];
+    // 模型上下文与显示气泡分离：气泡可拆分，原始对话必须保持完整。
+    const conversationMessages = [];
 
     window.addEventListener('contextmenu', (event) => {
       event.preventDefault();
       event.stopPropagation();
     });
 
-    function renderMessages() {
+    function formatTimeDivider(timestamp) {
+      const date = new Date(timestamp);
+      const now = new Date();
+      const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+      return date.toDateString() === now.toDateString() ? `今天 ${time}` : `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+    }
+
+    function parseUtcStorageTimestamp(value) {
+      if (!value) return NaN;
+      const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+      return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized) ? normalized : `${normalized}Z`);
+    }
+
+    function renderMessages({ forceScrollToBottom = false } = {}) {
+      const previousScrollTop = messagesEl.scrollTop;
+      const distanceFromBottom = messagesEl.scrollHeight - messagesEl.clientHeight - previousScrollTop;
+      const shouldScrollToBottom = forceScrollToBottom || distanceFromBottom <= 24;
       messagesEl.innerHTML = '';
+      let lastTimestamp = 0;
       for (const message of messages) {
-        const bubble = document.createElement('div');
-        bubble.className = `message ${message.role}${message.streaming ? ' streaming' : ''}`;
-        bubble.textContent = message.content;
-        messagesEl.appendChild(bubble);
+        const timestamp = parseUtcStorageTimestamp(message.createdAt);
+        if (Number.isFinite(timestamp) && (!lastTimestamp || timestamp - lastTimestamp >= 10 * 60 * 1000)) {
+          const divider = document.createElement('div');
+          divider.className = 'time-divider';
+          divider.textContent = formatTimeDivider(timestamp);
+          messagesEl.appendChild(divider);
+        }
+        if (Number.isFinite(timestamp)) lastTimestamp = timestamp;
+        if (message.role === 'thinking') {
+          const row = document.createElement('div');
+          row.className = 'message-row thinking';
+          row.setAttribute('data-thinking', 'true');
+
+          const avatar = document.createElement('img');
+          avatar.className = 'message-avatar';
+          avatar.src = assistantAvatarSrc;
+          avatar.alt = '下班鸭';
+          avatar.draggable = false;
+
+          const bubble = document.createElement('div');
+          bubble.className = 'message assistant thinking-bubble';
+
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'thinking-toggle';
+          toggle.disabled = !message.content;
+          toggle.addEventListener('click', () => {
+            if (!message.content) return;
+            message.expanded = !message.expanded;
+            renderMessages();
+          });
+
+          const caret = document.createElement('span');
+          caret.className = 'thinking-caret';
+          caret.textContent = message.expanded ? '▾' : '▸';
+
+          const label = document.createElement('span');
+          label.className = 'thinking-text';
+          const elapsedSuffix = Number.isFinite(message.elapsedSeconds)
+            ? ` · 已等待 ${message.elapsedSeconds} 秒`
+            : '';
+          label.textContent = `${message.status || '对方正在输入…'}${elapsedSuffix}`;
+
+          toggle.appendChild(caret);
+          toggle.appendChild(label);
+
+          if (message.pending) {
+            const dots = document.createElement('span');
+            dots.className = 'thinking-dots';
+            dots.innerHTML = '<span class="dot" style="animation-delay:0s"></span><span class="dot" style="animation-delay:0.2s"></span><span class="dot" style="animation-delay:0.4s"></span>';
+            toggle.appendChild(dots);
+          }
+
+          bubble.appendChild(toggle);
+
+          if (message.expanded && message.content) {
+            const detail = document.createElement('div');
+            detail.className = 'thinking-detail';
+            detail.textContent = message.content;
+            bubble.appendChild(detail);
+          }
+
+          row.appendChild(avatar);
+          row.appendChild(bubble);
+          messagesEl.appendChild(row);
+        } else if (message.role === 'assistant' || message.role === 'error') {
+          const bubble = document.createElement('div');
+          bubble.className = `message ${message.role}${message.streaming ? ' streaming' : ''}`;
+          const content = document.createElement('span');
+          content.textContent = message.content;
+          bubble.appendChild(content);
+          const row = document.createElement('div');
+          row.className = `message-row ${message.role}`;
+
+          const avatar = document.createElement('img');
+          avatar.className = 'message-avatar';
+          avatar.src = assistantAvatarSrc;
+          avatar.alt = '下班鸭';
+          avatar.draggable = false;
+
+          const stack = document.createElement('div');
+          stack.className = 'message-stack';
+          stack.appendChild(bubble);
+
+          if (message.role === 'error' && message.retryContent) {
+            const retryButton = document.createElement('button');
+            retryButton.type = 'button';
+            retryButton.className = 'retry-button';
+            retryButton.textContent = '重试';
+            retryButton.disabled = !!activeStreamId;
+            retryButton.addEventListener('click', () => {
+              const retryContent = message.retryContent;
+              removeFailedTurn(message);
+              sendChat(retryContent);
+            });
+            stack.appendChild(retryButton);
+          }
+
+          row.appendChild(avatar);
+          row.appendChild(stack);
+          messagesEl.appendChild(row);
+        } else {
+          const bubble = document.createElement('div');
+          bubble.className = `message ${message.role}${message.streaming ? ' streaming' : ''}${message.queued ? ' queued' : ''}`;
+          const content = document.createElement('span');
+          content.textContent = message.content;
+          bubble.appendChild(content);
+          if (message.queued) {
+            const state = document.createElement('span');
+            state.className = 'message-queue-state';
+            state.textContent = '等待小黄鸭回复';
+            bubble.appendChild(state);
+          }
+          const row = document.createElement('div');
+          row.className = 'message-row user';
+          const avatar = document.createElement('span');
+          avatar.className = 'message-avatar user-avatar';
+          avatar.textContent = '我';
+          avatar.setAttribute('aria-label', '我');
+          row.appendChild(bubble);
+          row.appendChild(avatar);
+          messagesEl.appendChild(row);
+        }
       }
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      messagesEl.scrollTop = shouldScrollToBottom ? messagesEl.scrollHeight : previousScrollTop;
+    }
+
+    function splitAssistantContent(content) {
+      const text = String(content || '').trim();
+      if (!text) return [];
+      const blankParts = text.split(/(?:\n\s*\n+|[ \t\u00a0\u3000]{2,})/).map((part) => part.trim()).filter(Boolean);
+      if (blankParts.length > 1) return blankParts;
+      if (text.length < 70 || /(^|\n)\s*(\d+\.|-|\*)\s+/.test(text)) return [text];
+
+      const sentences = text
+        .split(/(?<=[。！？!?])\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (sentences.length <= 1) return [text];
+
+      const parts = [];
+      let current = '';
+      for (const sentence of sentences) {
+        if (parts.length >= 3) {
+          current = current ? `${current}${sentence}` : sentence;
+          continue;
+        }
+        if (!current || `${current}${sentence}`.length <= 46) {
+          current = `${current}${sentence}`;
+        } else {
+          parts.push(current);
+          current = sentence;
+        }
+      }
+      if (current) parts.push(current);
+      return parts.length > 1 ? parts : [text];
+    }
+
+    function pushActiveAssistantPart(content) {
+      const text = String(content || '').trim();
+      if (!text) return false;
+      const nextPart = { role: 'assistant', content: text, createdAt: activeAssistantCreatedAt };
+      const lastPart = activeAssistantParts[activeAssistantParts.length - 1];
+      if (lastPart) {
+        const lastIndex = messages.indexOf(lastPart);
+        messages.splice(lastIndex + 1, 0, nextPart);
+      } else {
+        messages.push(nextPart);
+      }
+      activeAssistantParts.push(nextPart);
+      activeAssistantMessage = nextPart;
+      return true;
+    }
+
+    function appendThinkingDelta(delta) {
+      const text = String(delta || '');
+      if (!text) return false;
+      if (!activeThinkingBubble) {
+        activeThinkingBubble = { role: 'thinking', content: '', expanded: false, pending: true };
+        messages.push(activeThinkingBubble);
+      }
+      activeThinkingBubble.content = `${activeThinkingBubble.content || ''}${text}`;
+      return true;
+    }
+
+    function updateThinkingStatus(status) {
+      const text = String(status || '').trim();
+      if (!text) return false;
+      if (!activeThinkingBubble) {
+        activeThinkingBubble = { role: 'thinking', content: '', status: text, expanded: false, pending: true };
+        messages.push(activeThinkingBubble);
+        return true;
+      }
+      activeThinkingBubble.status = text;
+      activeThinkingBubble.pending = true;
+      return true;
+    }
+
+    function getSentenceEndIndexes(text) {
+      const indexes = [];
+      sentenceEndPattern.lastIndex = 0;
+      let match = sentenceEndPattern.exec(text);
+      while (match) {
+        indexes.push(match.index + match[0].length);
+        match = sentenceEndPattern.exec(text);
+      }
+      return indexes;
+    }
+
+    function flushImplicitSentencePart() {
+      const buffer = activeAssistantBuffer.trimStart();
+      const leadingLength = activeAssistantBuffer.length - buffer.length;
+      const sentenceEnds = getSentenceEndIndexes(buffer);
+      if (!sentenceEnds.length) return false;
+      let boundary = sentenceEnds[0];
+      if (boundary < 8 && sentenceEnds.length >= 2) {
+        boundary = sentenceEnds[1];
+      }
+      const shouldFlushSentence = boundary >= 16 || sentenceEnds.length >= 2 || buffer.length >= 52;
+      if (!shouldFlushSentence) return false;
+      const part = buffer.slice(0, boundary).trim();
+      activeAssistantBuffer = buffer.slice(boundary).trimStart();
+      if (leadingLength && !part) {
+        activeAssistantBuffer = activeAssistantBuffer.trimStart();
+      }
+      return pushActiveAssistantPart(part);
+    }
+
+    function flushAssistantBuffer({ done = false } = {}) {
+      let changed = false;
+      let match = activeAssistantBuffer.match(bubbleDelimiterPattern);
+      while (match) {
+        const part = activeAssistantBuffer.slice(0, match.index).trim();
+        if (part) {
+          changed = pushActiveAssistantPart(part) || changed;
+        }
+        activeAssistantBuffer = activeAssistantBuffer.slice(match.index + match[0].length);
+        match = activeAssistantBuffer.match(bubbleDelimiterPattern);
+      }
+      while (!done && flushImplicitSentencePart()) {
+        changed = true;
+      }
+      if (done) {
+        const finalPart = activeAssistantBuffer.trim();
+        activeAssistantBuffer = '';
+        if (finalPart) {
+          for (const part of splitAssistantContent(finalPart)) {
+            changed = pushActiveAssistantPart(part) || changed;
+          }
+        }
+        activeAssistantMessage = null;
+      }
+      return changed;
+    }
+
+    function hasMessageIdentity(id) {
+      return Boolean(id) && messages.some((message) => message.id === id);
+    }
+
+    function pushAssistantParts(content, id, createdAt) {
+      if (hasMessageIdentity(id)) return false;
+      const parts = splitAssistantContent(content);
+      let changed = false;
+      for (const part of parts) {
+        messages.push({ id, role: 'assistant', content: part, createdAt });
+        changed = true;
+        id = undefined;
+      }
+      return changed;
+    }
+
+    function addMirroredUser(event) {
+      const content = String(event.content || '').trim();
+      if (!content || hasMessageIdentity(event.messageId)) return;
+      messages.push({ id: event.messageId, role: 'user', content, createdAt: new Date().toISOString() });
+      conversationMessages.push({ role: 'user', content });
+    }
+
+    function handleMirroredChat(event) {
+      if (!event || !event.streamId) return;
+      if (event.type === 'user') {
+        addMirroredUser(event);
+        renderMessages();
+        return;
+      }
+
+      const mirrored = mirroredStreams.get(event.streamId);
+      if (event.type === 'delta') {
+        const content = String(event.content || '');
+        if (!content) return;
+        const current = mirrored || { message: { id: `mirror-${event.streamId}`, role: 'assistant', content: '', createdAt: new Date().toISOString() }, content: '' };
+        if (!mirrored) {
+          messages.push(current.message);
+          mirroredStreams.set(event.streamId, current);
+        }
+        current.content += content;
+        current.message.content = current.content;
+        renderMessages();
+        return;
+      }
+
+      if (!mirrored) {
+        if (event.type === 'error') {
+          messages.push({ role: 'error', content: event.content || '下班鸭暂时没能回复。' });
+          renderMessages();
+        }
+        return;
+      }
+      if (event.type === 'done') {
+        if (event.messageId) current.message.id = event.messageId;
+        if (current.content.trim()) conversationMessages.push({ role: 'assistant', content: current.content.trim() });
+      } else if (event.type === 'error') {
+        const index = messages.indexOf(current.message);
+        if (index >= 0) messages.splice(index, 1);
+        messages.push({ role: 'error', content: event.content || '下班鸭暂时没能回复。' });
+      } else if (event.type === 'cancel') {
+        const index = messages.indexOf(current.message);
+        if (index >= 0) messages.splice(index, 1);
+      }
+      mirroredStreams.delete(event.streamId);
+      renderMessages();
     }
 
     function setSending(next) {
-      sendButton.disabled = next;
-      chatInput.disabled = next;
-      sendButton.textContent = next ? '...' : '发送';
+      sendButton.disabled = false;
+      sendButton.textContent = '发送';
+      sendButton.title = next
+        ? (pendingUserMessages.length ? `已有 ${pendingUserMessages.length} 条消息排队中，仍可继续发送` : '下班鸭正在回复，仍可继续发送')
+        : '发送消息';
+    }
+
+    function makeStreamId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+      return `stream-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
     function stopActiveStream() {
@@ -253,46 +963,270 @@
       }
       activeStreamId = null;
       activeAssistantMessage = null;
+      activeAssistantParts = [];
+      activeAssistantBuffer = '';
+      activeAssistantRawContent = '';
+      activeAssistantCreatedAt = '';
+      activeUserText = '';
+      stopThinkingTimer();
+      removeThinkingBubble();
+      setSending(false);
+      renderMessages();
+    }
+
+    function addThinkingBubble() {
+      removeThinkingBubble();
+      const thinkingMsg = { role: 'thinking', content: '', status: '小黄鸭在想…', expanded: false, pending: true };
+      messages.push(thinkingMsg);
+      activeThinkingBubble = thinkingMsg;
+    }
+
+    function startThinkingTimer() {
+      stopThinkingTimer();
+      if (!activeThinkingBubble) return;
+      const startedAt = Date.now();
+      const refreshElapsed = () => {
+        if (!activeThinkingBubble) return;
+        activeThinkingBubble.elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        renderMessages();
+      };
+      refreshElapsed();
+      thinkingElapsedTimer = window.setInterval(refreshElapsed, 1000);
+    }
+
+    function stopThinkingTimer() {
+      if (thinkingElapsedTimer !== null) {
+        window.clearInterval(thinkingElapsedTimer);
+        thinkingElapsedTimer = null;
+      }
+    }
+
+    function removeThinkingBubble() {
+      if (activeThinkingBubble) {
+        const index = messages.indexOf(activeThinkingBubble);
+        if (index >= 0) {
+          messages.splice(index, 1);
+        }
+        activeThinkingBubble = null;
+      }
+    }
+
+    function finishThinkingBubble() {
+      if (!activeThinkingBubble) return;
+      activeThinkingBubble.pending = false;
+      if (!String(activeThinkingBubble.content || '').trim()) {
+        removeThinkingBubble();
+        return;
+      }
+      activeThinkingBubble.expanded = false;
+      activeThinkingBubble = null;
+    }
+
+    function removeFailedTurn(errorMessage) {
+      const errorIndex = messages.indexOf(errorMessage);
+      if (errorIndex < 0) return;
+
+      const retryContent = String(errorMessage.retryContent || '').trim();
+      let deleteFrom = errorIndex;
+      if (retryContent) {
+        for (let index = errorIndex - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (message.role === 'user') {
+            if (message.content === retryContent) {
+              deleteFrom = index;
+            }
+            break;
+          }
+        }
+      }
+      messages.splice(deleteFrom, errorIndex - deleteFrom + 1);
+      renderMessages();
     }
 
     function closeChat() {
-      stopActiveStream();
       if (hostWindow && hostWindow.setChatOpen) {
         hostWindow.setChatOpen(false);
       }
     }
 
-    async function sendChat(content) {
-      const text = String(content || '').trim();
+    function startNextQueuedChat() {
+      if (activeStreamId || !pendingUserMessages.length) return;
+      const message = pendingUserMessages[0];
+      if (message.screenQuestionPending) return;
+      pendingUserMessages.shift();
+      message.queued = false;
+      startChat(message);
+    }
+
+    function persistQueuedMessage(message) {
+      if (!chatApi || !chatApi.queueMessage) return Promise.resolve();
+      return chatApi.queueMessage(message.id, message.modelContent || message.content)
+        .then((id) => {
+          if (id) message.queuedMessageId = id;
+        })
+        .catch(() => {});
+    }
+
+    async function startChat(message) {
+      const text = message.modelContent || message.content;
       if (!text || activeStreamId) return;
-      messages.push({ role: 'user', content: text });
-      activeAssistantMessage = { role: 'assistant', content: '', streaming: true };
-      messages.push(activeAssistantMessage);
-      chatInput.value = '';
+      conversationMessages.push({ role: 'user', content: text });
+      activeAssistantMessage = null;
+      activeAssistantParts = [];
+      activeAssistantBuffer = '';
+      activeAssistantRawContent = '';
+      activeAssistantCreatedAt = new Date().toISOString();
+      activeUserText = text;
+      addThinkingBubble();
       renderMessages();
       setSending(true);
+      const streamId = makeStreamId();
+      activeStreamId = streamId;
 
       try {
         if (!chatApi || !chatApi.startStream) {
           throw new Error('桌宠对话接口未就绪');
         }
-        activeStreamId = await chatApi.startStream(messages.map(({ role, content }) => ({ role, content })));
+        await message.queuePersistPromise;
+        startThinkingTimer();
+        await chatApi.startStream(conversationMessages, streamId, message.queuedMessageId);
       } catch (error) {
-        messages.pop();
+        stopThinkingTimer();
+        removeThinkingBubble();
+        const index = messages.findLastIndex((item) => item === message);
+        if (index >= 0) {
+          messages.splice(index + 1, activeAssistantParts.length);
+        }
         messages.push({
           role: 'error',
           content: error && error.message ? error.message : '下班鸭暂时没能回复。',
+          retryContent: text,
         });
         activeAssistantMessage = null;
+        activeAssistantParts = [];
+        activeAssistantBuffer = '';
+        activeAssistantRawContent = '';
+        activeAssistantCreatedAt = '';
+        activeUserText = '';
         activeStreamId = null;
         setSending(false);
         renderMessages();
         chatInput.focus();
+        startNextQueuedChat();
+      }
+    }
+
+    function sendChat(content) {
+      const text = String(content || '').trim();
+      if (!text) return;
+      const shouldQueue = Boolean(activeStreamId || pendingUserMessages.length);
+      const message = { id: makeStreamId(), role: 'user', content: text, createdAt: new Date().toISOString(), queued: shouldQueue };
+      messages.push(message);
+      chatInput.value = '';
+      resetChatInputSize();
+      renderMessages({ forceScrollToBottom: true });
+      if (shouldQueue) {
+        message.queuePersistPromise = persistQueuedMessage(message);
+        pendingUserMessages.push(message);
+        setSending(true);
+        chatInput.focus();
+        return;
+      }
+      startChat(message);
+    }
+
+    function removeScreenQuestionThinking(id) {
+      const index = messages.findIndex((message) => message.screenQuestionId === id && message.role === 'thinking');
+      if (index >= 0) messages.splice(index, 1);
+    }
+
+    function handleScreenQuestionChat(payload) {
+      const id = String(payload?.id || '').trim();
+      if (!id) return;
+      if (payload.kind === 'chatPending') {
+        const content = String(payload.message || '').trim();
+        if (!content || pendingScreenQuestions.has(id)) return;
+        const message = {
+          id,
+          role: 'user',
+          content,
+          createdAt: new Date().toISOString(),
+          queued: true,
+          screenQuestionPending: true,
+          queuePersistPromise: Promise.resolve(),
+        };
+        pendingScreenQuestions.set(id, message);
+        pendingUserMessages.push(message);
+        messages.push(message, { role: 'thinking', status: '正在看图…', pending: true, screenQuestionId: id });
+        setSending(true);
+        renderMessages({ forceScrollToBottom: true });
+        return;
+      }
+
+      const message = pendingScreenQuestions.get(id);
+      if (!message) return;
+      pendingScreenQuestions.delete(id);
+      message.screenQuestionPending = false;
+      removeScreenQuestionThinking(id);
+      if (payload.kind === 'chatReady') {
+        const modelContent = String(payload.message || '').trim();
+        if (!modelContent) return;
+        message.modelContent = modelContent;
+        message.queuePersistPromise = persistQueuedMessage(message);
+      } else {
+        const queueIndex = pendingUserMessages.indexOf(message);
+        if (queueIndex >= 0) pendingUserMessages.splice(queueIndex, 1);
+        message.queued = false;
+        messages.push({ role: 'error', content: String(payload.message || '截图观察暂时失败，请重新点“看图问鸭”。') });
+      }
+      renderMessages({ forceScrollToBottom: true });
+      if (!activeStreamId && !pendingUserMessages.length) setSending(false);
+      startNextQueuedChat();
+    }
+
+    async function startScreenQuestion() {
+      if (!hostWindow || !hostWindow.startScreenQuestion || screenQuestionButton.disabled) return;
+      screenQuestionButton.disabled = true;
+      screenQuestionButton.textContent = '正在截取桌面…';
+      try {
+        await hostWindow.startScreenQuestion();
+      } catch (error) {
+        messages.push({ role: 'error', content: error && error.message ? error.message : '暂时无法开始看图提问。' });
+        renderMessages({ forceScrollToBottom: true });
+      } finally {
+        screenQuestionButton.disabled = false;
+        screenQuestionButton.textContent = '看图问鸭';
       }
     }
 
     closeChatButton.addEventListener('click', closeChat);
     window.addEventListener('beforeunload', stopActiveStream);
+
+    function setQuickPromptsOpen(open) {
+      quickPrompts.hidden = !open;
+      quickActionsToggle.setAttribute('aria-expanded', String(open));
+    }
+
+    function resetChatInputSize() {
+      chatInput.style.height = '34px';
+    }
+
+    function resizeChatInput() {
+      chatInput.style.height = '34px';
+      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 76)}px`;
+    }
+
+    quickActionsToggle.addEventListener('click', () => {
+      setQuickPromptsOpen(quickPrompts.hidden);
+    });
+    screenQuestionButton.addEventListener('click', startScreenQuestion);
+
+    chatInput.addEventListener('input', resizeChatInput);
+    chatInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      sendChat(chatInput.value);
+    });
 
     chatForm.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -301,50 +1235,148 @@
 
     document.querySelectorAll('[data-prompt]').forEach((button) => {
       button.addEventListener('click', () => {
+        setQuickPromptsOpen(false);
         sendChat(button.dataset.prompt);
       });
     });
 
     if (chatApi) {
-      chatApi.onDelta?.(({ streamId, delta }) => {
-        if (streamId !== activeStreamId || !activeAssistantMessage) return;
-        activeAssistantMessage.content += delta;
-        renderMessages();
+      chatApi.onDelta?.(({ streamId, type, delta }) => {
+        if (streamId !== activeStreamId) return;
+        if (type === 'status') {
+          if (updateThinkingStatus(delta)) {
+            renderMessages();
+          }
+          return;
+        }
+        if (type === 'thinking') {
+          if (appendThinkingDelta(delta)) {
+            renderMessages();
+          }
+          return;
+        }
+
+        stopThinkingTimer();
+        finishThinkingBubble();
+        activeAssistantRawContent += delta;
+        activeAssistantBuffer += delta;
+        if (flushAssistantBuffer()) {
+          renderMessages();
+        }
       });
 
       chatApi.onDone?.(({ streamId }) => {
         if (streamId !== activeStreamId) return;
-        if (activeAssistantMessage) {
-          activeAssistantMessage.streaming = false;
-          if (!activeAssistantMessage.content.trim()) {
-            activeAssistantMessage.content = '嗯……我刚刚没想出合适的话。你再问我一次？';
-          }
+        stopThinkingTimer();
+        finishThinkingBubble();
+        if (!activeAssistantBuffer.trim() && !activeAssistantParts.length) {
+          activeAssistantBuffer = '嗯……我刚刚没想出合适的话。你再问我一次？';
         }
+        flushAssistantBuffer({ done: true });
+        conversationMessages.push({
+          role: 'assistant',
+          content: activeAssistantRawContent.trim() || '嗯……我刚刚没想出合适的话。你再问我一次？',
+        });
         activeStreamId = null;
         activeAssistantMessage = null;
+        activeAssistantParts = [];
+        activeAssistantBuffer = '';
+        activeAssistantRawContent = '';
+        activeAssistantCreatedAt = '';
+        activeUserText = '';
         setSending(false);
         renderMessages();
         chatInput.focus();
+        startNextQueuedChat();
       });
 
       chatApi.onError?.(({ streamId, message }) => {
         if (streamId !== activeStreamId) return;
+        stopThinkingTimer();
+        finishThinkingBubble();
         if (activeAssistantMessage) {
-          const index = messages.indexOf(activeAssistantMessage);
+          const index = activeAssistantParts.length
+            ? messages.indexOf(activeAssistantParts[0])
+            : messages.indexOf(activeAssistantMessage);
           if (index >= 0) {
-            messages.splice(index, 1);
+            messages.splice(index, activeAssistantParts.length || 1);
           }
         }
-        messages.push({ role: 'error', content: message || '下班鸭暂时没能回复。' });
+        messages.push({
+          role: 'error',
+          content: message || '下班鸭暂时没能回复。',
+          retryContent: activeUserText,
+        });
         activeStreamId = null;
         activeAssistantMessage = null;
+        activeAssistantParts = [];
+        activeAssistantBuffer = '';
+        activeAssistantRawContent = '';
+        activeAssistantCreatedAt = '';
+        activeUserText = '';
         setSending(false);
         renderMessages();
         chatInput.focus();
+        startNextQueuedChat();
       });
+
+      chatApi.onProactiveMessage?.((message) => {
+        const content = String(message && message.content ? message.content : '').trim();
+        if (!content) return;
+        if (pushAssistantParts(content, message.id, message.created_at || new Date().toISOString())) {
+          conversationMessages.push({ role: 'assistant', content });
+          renderMessages();
+        }
+      });
+
+      chatApi.onDeskPetMirror?.(handleMirroredChat);
     }
 
-    renderMessages();
+    hostWindow?.onScreenQuestionReady?.((payload) => {
+      if (payload?.kind === 'chatPending' || payload?.kind === 'chatReady' || payload?.kind === 'chatError') {
+        handleScreenQuestionChat(payload);
+      }
+    });
+
+    async function initMessages() {
+      try {
+        if (chatApi && chatApi.listMessages) {
+          const history = await chatApi.listMessages();
+          for (const message of history || []) {
+            const content = String(message.content || '').trim();
+            if (!content || (message.role !== 'user' && message.role !== 'assistant')) continue;
+            conversationMessages.push({ role: message.role, content });
+            if (message.role === 'assistant') {
+          pushAssistantParts(content, message.id, message.created_at);
+            } else {
+              messages.push({ id: message.id, role: 'user', content, createdAt: message.created_at });
+            }
+          }
+          const queued = await chatApi.listQueuedMessages?.();
+          for (const message of queued || []) {
+            const content = String(message.content || '').trim();
+            if (!content) continue;
+            const queuedMessage = {
+              id: message.id,
+              role: 'user',
+              content,
+              createdAt: message.created_at,
+              queued: true,
+              queuedMessageId: message.id,
+              queuePersistPromise: Promise.resolve(),
+            };
+            messages.push(queuedMessage);
+            pendingUserMessages.push(queuedMessage);
+          }
+        }
+      } catch (e) {
+        // 加载失败静默跳过，空聊窗也可以
+      }
+      renderMessages();
+      startNextQueuedChat();
+    }
+
+    initMessages();
     setTimeout(() => chatInput.focus(), 80);
   </script>
 </body>

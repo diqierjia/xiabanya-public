@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>看图问鸭</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #stage { width: 100%; height: 100%; margin: 0; overflow: hidden; font-family: "Microsoft YaHei", "Segoe UI", sans-serif; }
+    #stage { position: relative; background: #111827; cursor: crosshair; user-select: none; }
+    #snapshot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+    #veil { position: absolute; inset: 0; background: rgba(5, 12, 20, .42); pointer-events: none; }
+    #hint { position: absolute; top: 26px; left: 50%; transform: translateX(-50%); padding: 10px 16px; border-radius: 999px; background: rgba(15, 23, 42, .88); color: #fff; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.28); pointer-events: none; white-space: nowrap; }
+    #selection { position: absolute; display: none; border: 2px solid #22c55e; background: rgba(34, 197, 94, .08); box-shadow: 0 0 0 9999px rgba(5, 12, 20, .42); pointer-events: none; }
+    #controls { position: absolute; display: none; width: min(352px, calc(100vw - 24px)); gap: 8px; align-items: center; padding: 8px; border: 1px solid rgba(255,255,255,.65); border-radius: 12px; background: rgba(255,255,255,.96); box-shadow: 0 12px 36px rgba(0,0,0,.3); cursor: default; }
+    #question { flex: 1; min-width: 0; height: 34px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 10px; outline: none; color: #172033; font-size: 13px; user-select: text; }
+    #question:focus { border-color: #22a55b; box-shadow: 0 0 0 3px rgba(34,197,94,.15); }
+    .action { width: 34px; height: 34px; border: 0; border-radius: 8px; cursor: pointer; font-size: 17px; }
+    #confirm { background: #dcfce7; } #confirm:disabled { opacity: .45; cursor: not-allowed; }
+    #cancel { background: #fee2e2; }
+    #loading { position: absolute; inset: 0; display: none; place-items: center; background: rgba(5,12,20,.6); color: #fff; font-size: 15px; z-index: 3; }
+    #loading.visible { display: grid; }
+  </style>
+</head>
+<body>
+  <main id="stage">
+    <img id="snapshot" alt="当前桌面截图" />
+    <div id="veil"></div>
+    <div id="hint">拖拽框选你想问的区域，整张桌面会作为上下文</div>
+    <div id="selection"></div>
+    <div id="controls">
+      <input id="question" maxlength="500" placeholder="想问小黄鸭什么？" autocomplete="off" />
+      <button id="confirm" class="action" type="button" title="发送" disabled>✅</button>
+      <button id="cancel" class="action" type="button" title="取消">❌</button>
+    </div>
+    <div id="loading">小黄鸭正在看图…</div>
+  </main>
+  <script>
+    const api = window.xiabanyaApi && window.xiabanyaApi.deskPetWindow;
+    const stage = document.querySelector('#stage');
+    const snapshot = document.querySelector('#snapshot');
+    const selectionEl = document.querySelector('#selection');
+    const controls = document.querySelector('#controls');
+    const question = document.querySelector('#question');
+    const confirm = document.querySelector('#confirm');
+    const cancel = document.querySelector('#cancel');
+    const hint = document.querySelector('#hint');
+    const loading = document.querySelector('#loading');
+    let start = null;
+    let selection = null;
+    let submitted = false;
+
+    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+    function relativePoint(event) {
+      const rect = stage.getBoundingClientRect();
+      return { x: clamp(event.clientX - rect.left, 0, rect.width), y: clamp(event.clientY - rect.top, 0, rect.height) };
+    }
+    function normalizeRect(a, b) {
+      return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) };
+    }
+    function canSubmit() { return !!selection && selection.width >= 6 && selection.height >= 6 && question.value.trim().length > 0; }
+    function placeControls() {
+      if (!selection) return;
+      const stageRect = stage.getBoundingClientRect();
+      const width = Math.min(352, stageRect.width - 24);
+      const left = clamp(selection.x + selection.width - width, 12, stageRect.width - width - 12);
+      const preferredTop = selection.y - 50;
+      const top = preferredTop >= 12 ? preferredTop : Math.min(stageRect.height - 50, selection.y + selection.height + 10);
+      controls.style.left = `${left}px`;
+      controls.style.top = `${top}px`;
+    }
+    function renderSelection() {
+      if (!selection || selection.width < 3 || selection.height < 3) {
+        selectionEl.style.display = 'none'; controls.style.display = 'none'; confirm.disabled = true; return;
+      }
+      selectionEl.style.display = 'block';
+      selectionEl.style.left = `${selection.x}px`; selectionEl.style.top = `${selection.y}px`;
+      selectionEl.style.width = `${selection.width}px`; selectionEl.style.height = `${selection.height}px`;
+      controls.style.display = 'flex'; placeControls(); confirm.disabled = !canSubmit();
+      hint.textContent = '输入问题后点击 ✅ 发送；按 Esc 或 ❌ 取消';
+    }
+    function cropDataUrl() {
+      const rect = stage.getBoundingClientRect();
+      const sx = Math.round(selection.x / rect.width * snapshot.naturalWidth);
+      const sy = Math.round(selection.y / rect.height * snapshot.naturalHeight);
+      const sw = Math.max(1, Math.round(selection.width / rect.width * snapshot.naturalWidth));
+      const sh = Math.max(1, Math.round(selection.height / rect.height * snapshot.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = sw; canvas.height = sh;
+      canvas.getContext('2d').drawImage(snapshot, sx, sy, sw, sh, 0, 0, sw, sh);
+      return canvas.toDataURL('image/jpeg', .9);
+    }
+    function cancelQuestion() { api?.cancelScreenQuestion?.().catch(() => {}); }
+    stage.addEventListener('pointerdown', (event) => {
+      if (event.target !== stage && event.target !== snapshot && event.target !== selectionEl && event.target !== document.querySelector('#veil')) return;
+      start = relativePoint(event); selection = null; stage.setPointerCapture?.(event.pointerId); renderSelection();
+    });
+    stage.addEventListener('pointermove', (event) => {
+      if (!start) return; selection = normalizeRect(start, relativePoint(event)); renderSelection();
+    });
+    stage.addEventListener('pointerup', (event) => {
+      if (!start) return; selection = normalizeRect(start, relativePoint(event)); start = null; stage.releasePointerCapture?.(event.pointerId); renderSelection();
+      if (canSubmit()) question.focus();
+    });
+    question.addEventListener('input', () => { confirm.disabled = !canSubmit(); });
+    question.addEventListener('keydown', (event) => { if (event.key === 'Enter' && canSubmit()) confirm.click(); });
+    controls.addEventListener('pointerdown', (event) => event.stopPropagation());
+    cancel.addEventListener('click', cancelQuestion);
+    confirm.addEventListener('click', async () => {
+      if (!canSubmit()) return;
+      submitted = true;
+      confirm.disabled = true; loading.classList.add('visible');
+      try { await api?.submitScreenQuestion?.({ question: question.value.trim(), cropDataUrl: cropDataUrl() }); }
+      catch (error) { submitted = false; loading.classList.remove('visible'); confirm.disabled = !canSubmit(); hint.textContent = error?.message || '发送失败，请重试'; }
+    });
+    window.addEventListener('keydown', (event) => { if (event.key === 'Escape') cancelQuestion(); });
+    window.addEventListener('beforeunload', () => { if (!submitted) api?.cancelScreenQuestion?.().catch(() => {}); });
+    api?.onScreenQuestionReady?.((payload) => { if (payload?.kind === 'overlay' && payload.imageDataUrl) snapshot.src = payload.imageDataUrl; });
+  </script>
+</body>
+</html>

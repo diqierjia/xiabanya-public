@@ -1,0 +1,110 @@
+classDiagram
+    direction TB
+
+    class CostumeSlot {
+        <<enumeration>>
+        body
+        hat
+        accessory
+    }
+
+    class CostumeItem {
+        +string itemId
+        +CostumeSlot slot
+        +string displayName
+        +string spriteSrc
+        +UnlockCondition? unlockCondition
+    }
+
+    class UnlockCondition {
+        +UnlockConditionType type
+        +number threshold
+    }
+
+    class UnlockConditionType {
+        <<enumeration>>
+        intimacy
+        consecutive_days
+        report_count
+        record_count
+        achievement
+    }
+
+    class CostumeUnlockStats {
+        +number consecutiveDays
+        +number reportCount
+        +number recordCount
+    }
+
+    class CostumeTransition {
+        +CostumeSlot[] changedSlots
+        +number durationMs
+    }
+
+    class AnimationCommand {
+        +DeskPetStateV2 state
+        +EmotionType emotion
+        +TransitionConfig? transition
+        +BubbleData? bubble
+        +EffectType effect
+        +Record~CostumeSlot,string~? costume
+        +CostumeTransition? costumeTransition
+    }
+
+    class CostumeUnlockEngine {
+        +evaluateUnlocks(attrs, stats, unlocked) string[]
+        +isUnlocked(itemId, unlocked) boolean
+        +getAvailableForSlot(slot, unlocked) CostumeItem[]
+    }
+
+    class AttributeEngine {
+        +tick(deltaMs, appState) void
+        +applyGesture(gesture) DeskPetAttributes
+        +evaluateAutonomousState() AutonomousState
+        +computeEmotion() EmotionType
+        +getAttributes() DeskPetAttributes
+        +getStats() CostumeUnlockStats
+        +load(data, ts) void
+        +snapshot() DeskPetSaveData
+    }
+
+    class DeskPetSaveData {
+        +DeskPetAttributes attributes
+        +AppDrivenState currentAppState
+        +Record~CostumeSlot,string~ currentCostume
+        +string[] unlockedCostumes
+        +number lastTickTimestamp
+    }
+
+    class SpriteEngine {
+        +baseSprites Map
+        +costumeSprites Map
+        +costumeCache LRUCache
+        +loadBaseSprites(states) void
+        +loadCostumeSprite(slot, itemId, state) Image
+        +preloadCostumeSet(costume, state) void
+        +getBaseFrame(state, index) FrameRect
+        +getCostumeFrame(slot, itemId, state, index) FrameRect
+    }
+
+    class AnimationController {
+        +SpriteEngine spriteEngine
+        +Record~CostumeSlot,string~ currentCostume
+        +Record~CostumeSlot,string~ previousCostume
+        +CostumeTransition? costumeTransition
+        +applyCommand(cmd) void
+        +renderFrame(timestamp) void
+        -_renderCostumeLayer(ctx, state, frame, ts) void
+        -_calculateCostumeAlphas(ts) Record
+    }
+
+    CostumeItem --> CostumeSlot : typed
+    CostumeItem --> UnlockCondition : optional
+    UnlockCondition --> UnlockConditionType : typed
+    AnimationCommand --> CostumeTransition : contains
+    CostumeUnlockEngine --> CostumeUnlockStats : uses
+    CostumeUnlockEngine --> CostumeItem : reads catalog
+    AttributeEngine --> CostumeUnlockStats : produces
+    DeskPetSaveData --> CostumeSlot : keys
+    AnimationController --> SpriteEngine : uses
+    AnimationController --> AnimationCommand : consumes

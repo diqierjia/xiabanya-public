@@ -3,6 +3,7 @@ import { join } from 'path';
 import { DatabaseService } from './database';
 import { registerIpcHandlers, autoStartTrackerAndVision } from './ipc-handlers';
 import { createTray, destroyTray } from './tray';
+import { DEFAULT_SETTINGS } from '../shared/types';
 import {
   DESK_PET_SIZE_SETTING_KEY,
   configureDeskPetSizePersistence,
@@ -36,6 +37,7 @@ function scheduleDeskPetCompositeRefresh(delays = [120, 320]): void {
 }
 
 function createWindow(): void {
+  let reloadedAfterRenderCrash = false;
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 748,
@@ -53,6 +55,34 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('[MainWindow] Failed to load renderer:', errorCode, errorDescription, validatedURL);
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  });
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error('[MainWindow] Preload failed:', preloadPath, error);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[MainWindow] Renderer process gone:', details);
+    if (reloadedAfterRenderCrash || !mainWindow || mainWindow.isDestroyed()) return;
+    reloadedAfterRenderCrash = true;
+    mainWindow.reload();
+  });
+
+  mainWindow.on('unresponsive', () => {
+    console.error('[MainWindow] Window became unresponsive.');
   });
 
   // v2.3: 关闭窗口 → 最小化到托盘（不退出应用）
@@ -104,7 +134,7 @@ if (!gotSingleInstanceLock) {
 
     // 创建窗口
     createWindow();
-    if (db.getSetting('desk_pet_enabled', 'false') === 'true') {
+    if (db.getSetting('desk_pet_enabled', String(DEFAULT_SETTINGS.desk_pet_enabled)) === 'true') {
       createDeskPetWindow();
     }
 

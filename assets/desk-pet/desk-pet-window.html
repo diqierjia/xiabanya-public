@@ -56,6 +56,7 @@
     .resize-handle:hover::after {
       opacity: 1;
     }
+
   </style>
 </head>
 <body>
@@ -71,11 +72,16 @@
     let renderBounds = {};
     let frame = 0;
     let last = 0;
+    let stateStartedAt = 0;
     let state = 'idle';
+    let workflowState = 'idle';
+    let greetingTimer = null;
+    let pendingGreeting = false;
     let gesture = null;
     let gestureStartPoint = null;
     let gestureMoved = false;
-    const validStates = new Set(['idle', 'working', 'thinking', 'done', 'sleep']);
+    const validStates = new Set(['idle', 'working', 'thinking', 'done', 'sleep', 'greeting']);
+    const workflowStates = new Set(['idle', 'working', 'thinking', 'done', 'sleep']);
 
     window.addEventListener('contextmenu', (event) => {
       event.preventDefault();
@@ -140,14 +146,36 @@
     window.addEventListener('pointercancel', endGesture);
     window.addEventListener('blur', endGesture);
 
-    function setDeskPetState(next) {
+    function setRenderedState(next) {
       if (!validStates.has(next) || next === state) return;
       state = next;
       frame = 0;
       last = 0;
+      stateStartedAt = performance.now();
+    }
+
+    function setDeskPetState(next) {
+      if (!workflowStates.has(next)) return;
+      workflowState = next;
+      if (state === 'greeting') return;
+      setRenderedState(next);
     }
 
     window.setDeskPetState = setDeskPetState;
+
+    window.playDeskPetGreeting = () => {
+      if (!config) {
+        pendingGreeting = true;
+        return;
+      }
+      pendingGreeting = false;
+      if (greetingTimer) clearTimeout(greetingTimer);
+      setRenderedState('greeting');
+      greetingTimer = setTimeout(() => {
+        greetingTimer = null;
+        setRenderedState(workflowState);
+      }, 1050);
+    };
 
     function measureFrameBounds(source) {
       const probe = document.createElement('canvas');
@@ -218,25 +246,57 @@
       }
     }
 
-    function drawCroppedFrame(source) {
-      const bounds = renderBounds[state] || source;
+    function getMotion(timestamp) {
+      const elapsed = Math.max(0, timestamp - stateStartedAt);
+      const gentleWave = Math.sin(elapsed / 420);
+      if (state === 'idle') {
+        return { x: 0, y: -0.004 * gentleWave, scaleX: 1 + 0.008 * gentleWave, scaleY: 1 - 0.012 * gentleWave, rotation: 0 };
+      }
+      if (state === 'working') {
+        return { x: 0, y: -0.009 * Math.abs(Math.sin(elapsed / 180)), scaleX: 1, scaleY: 1, rotation: -0.004 * Math.sin(elapsed / 260) };
+      }
+      if (state === 'thinking') {
+        return { x: 0.007 * Math.sin(elapsed / 520), y: -0.003 * gentleWave, scaleX: 1, scaleY: 1, rotation: 0.012 * Math.sin(elapsed / 720) };
+      }
+      if (state === 'done' || state === 'greeting') {
+        const progress = Math.min(1, elapsed / 980);
+        return { x: 0, y: -0.05 * Math.sin(Math.PI * progress), scaleX: 1, scaleY: 1, rotation: 0.022 * Math.sin(Math.PI * progress) };
+      }
+      return { x: 0, y: -0.006 * gentleWave, scaleX: 1 + 0.006 * gentleWave, scaleY: 1 - 0.015 * gentleWave, rotation: 0 };
+    }
+
+    function getStateData() {
+      return state === 'greeting'
+        ? config.states.done
+        : config.states[state] || config.states.idle;
+    }
+
+    function drawCroppedFrame(source, timestamp) {
+      const bounds = renderBounds[state === 'greeting' ? 'done' : state] || source;
       const targetW = canvas.width;
       const targetH = canvas.height;
-      const scale = Math.min(targetW / bounds.w, targetH / bounds.h);
+      const scale = Math.min(targetW / bounds.w, targetH / bounds.h) * 0.94;
       const drawW = Math.round(bounds.w * scale);
       const drawH = Math.round(bounds.h * scale);
       const drawX = Math.round((canvas.width - drawW) / 2);
       const drawY = Math.round((canvas.height - drawH) / 2);
+      const motion = getMotion(timestamp);
+      ctx.save();
+      ctx.translate(targetW / 2 + motion.x * targetW, targetH / 2 + motion.y * targetH);
+      ctx.rotate(motion.rotation);
+      ctx.scale(motion.scaleX, motion.scaleY);
+      ctx.translate(-targetW / 2, -targetH / 2);
       ctx.drawImage(image, source.x + bounds.x, source.y + bounds.y, bounds.w, bounds.h, drawX, drawY, drawW, drawH);
+      ctx.restore();
     }
 
     function paintCurrentFrame() {
       if (!config || !image) return;
-      const stateData = config.states[state] || config.states.idle;
+      const stateData = getStateData();
       const current = stateData.frames[frame % stateData.frames.length];
       resizeCanvasToWindow();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawCroppedFrame(current);
+      drawCroppedFrame(current, performance.now());
     }
 
     window.forceDeskPetRepaint = () => {
@@ -258,10 +318,13 @@
         return;
       }
 
-      const stateData = config.states[state] || config.states.idle;
+      if (!stateStartedAt) stateStartedAt = timestamp;
+      const stateData = getStateData();
       const current = stateData.frames[frame % stateData.frames.length];
       if (timestamp - last >= current.durationMs) {
-        frame = (frame + 1) % stateData.frames.length;
+        frame = stateData.loop === false
+          ? Math.min(frame + 1, stateData.frames.length - 1)
+          : (frame + 1) % stateData.frames.length;
         last = timestamp;
       }
 
@@ -284,6 +347,7 @@
       image = loadedImage;
       buildRenderBounds();
       queryState();
+      if (pendingGreeting) window.playDeskPetGreeting();
       requestAnimationFrame(draw);
     }).catch((error) => {
       console.error('[DeskPet] Failed to load sprites.', error);

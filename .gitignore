@@ -21,3 +21,12 @@ yarn-error.log*
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+
+# Private development and visual QA artifacts: never publish these.
+.tmp-*/
+assets/desk-pet/electron-*.png
+assets/desk-pet/*-crop*.png
+assets/desk-pet/preview-*.html
+assets/desk-pet/user-avatar-*.png
+assets/desk-pet/*-qa.png
+assets/pet-source/

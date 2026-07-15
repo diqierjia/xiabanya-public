@@ -250,7 +250,7 @@
           "durationMs": 125
         }
       ],
-      "loop": true
+      "loop": false
     },
     "sleep": {
       "row": 4,

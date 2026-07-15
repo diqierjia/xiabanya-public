@@ -9,18 +9,17 @@ export interface BadgeProps {
 
 /** 分类 → 颜色样式映射 (PRD v2.1) */
 const CATEGORY_COLOR_MAP: Record<string, string> = {
-  '开发': 'bg-blue-50 text-blue-700',
-  '沟通': 'bg-purple-50 text-purple-700',
-  '设计': 'bg-pink-50 text-pink-700',
-  '文档': 'bg-amber-50 text-amber-700',
-  '会议': 'bg-indigo-50 text-indigo-700',
-  '学习': 'bg-green-50 text-green-700',
-  '摸鱼': 'bg-gray-100 text-gray-600',
-  '产品': 'bg-rose-50 text-rose-700',
-  '数据分析': 'bg-teal-50 text-teal-700',
-  '研究': 'bg-violet-50 text-violet-700',
-  'AI/工具': 'bg-cyan-50 text-cyan-700',
-  '配置环境': 'bg-orange-50 text-orange-700',
+  '代码开发': 'bg-blue-50 text-blue-700',
+  '文稿写作': 'bg-amber-50 text-amber-700',
+  '视觉设计': 'bg-pink-50 text-pink-700',
+  '数据处理': 'bg-cyan-50 text-cyan-700',
+  '文献与阅读': 'bg-green-50 text-green-700',
+  '沟通与协作': 'bg-purple-50 text-purple-700',
+  '音视频会议': 'bg-indigo-50 text-indigo-700',
+  '规划与管理': 'bg-rose-50 text-rose-700',
+  '检索与AI': 'bg-violet-50 text-violet-700',
+  '系统与配置': 'bg-orange-50 text-orange-700',
+  '休闲娱乐': 'bg-gray-100 text-gray-600',
   '其他': 'bg-gray-50 text-gray-500',
 };
 

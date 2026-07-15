@@ -15,6 +15,12 @@ export function ChatHistoryPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [shownLatencyMessageId, setShownLatencyMessageId] = useState<string | null>(null);
+
+  const formatFirstResponseLatency = (milliseconds: number) => {
+    const seconds = milliseconds / 1000;
+    return seconds < 1 ? `${Math.max(0.1, Math.round(seconds * 10) / 10)} 秒` : `${seconds.toFixed(1)} 秒`;
+  };
 
   const fetchMessages = async () => {
     setLoading(true);
@@ -80,6 +86,8 @@ export function ChatHistoryPage() {
             {messages.map((message) => {
               const isUser = message.role === 'user';
               const Icon = isUser ? User : Bot;
+              const canShowLatency = !isUser && typeof message.response_latency_ms === 'number';
+              const isLatencyShown = shownLatencyMessageId === message.id;
               return (
                 <div
                   key={message.id}
@@ -95,13 +103,29 @@ export function ChatHistoryPage() {
                       {isUser ? '我' : '下班鸭'} · {formatUtcStorageDateTimeLocal(message.created_at)}
                     </div>
                     <div
-                      className={`rounded-xl px-3 py-2 text-sm leading-6 whitespace-pre-wrap break-words ${
+                      className={`rounded-xl px-3 py-2 text-sm leading-6 whitespace-pre-wrap break-words ${canShowLatency ? 'cursor-pointer transition-colors hover:bg-brand-100 ' : ''}${
                         isUser
                           ? 'bg-gray-900 text-white rounded-br-md'
                           : 'bg-gray-100 text-gray-800 rounded-bl-md'
                       }`}
+                      onClick={() => {
+                        if (canShowLatency) setShownLatencyMessageId(isLatencyShown ? null : message.id);
+                      }}
+                      onKeyDown={(event) => {
+                        if (!canShowLatency || (event.key !== 'Enter' && event.key !== ' ')) return;
+                        event.preventDefault();
+                        setShownLatencyMessageId(isLatencyShown ? null : message.id);
+                      }}
+                      role={canShowLatency ? 'button' : undefined}
+                      tabIndex={canShowLatency ? 0 : undefined}
+                      title={canShowLatency ? '点击查看本轮首段回复耗时' : undefined}
                     >
                       {message.content}
+                      {canShowLatency && isLatencyShown && (
+                        <div className="mt-1.5 border-t border-brand-200 pt-1.5 text-xs text-brand-700">
+                          本轮首段回复用时 {formatFirstResponseLatency(message.response_latency_ms)}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {isUser && (

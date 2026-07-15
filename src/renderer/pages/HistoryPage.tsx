@@ -85,7 +85,7 @@ export function HistoryPage() {
           title="还没有生成过报告"
           description="去生成你的第一份工作日报吧"
           actionLabel="去生成"
-          onAction={() => setPage('report')}
+          onAction={() => setPage('review')}
         />
       ) : (
         <div className="space-y-3">

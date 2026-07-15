@@ -1,39 +1,39 @@
 import { useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TodayPage } from './pages/TodayPage';
-import { ReportPage } from './pages/ReportPage';
 import { TimelinePage } from './pages/TimelinePage';
-import { HeatmapPage } from './pages/HeatmapPage';
-import { AppsPage } from './pages/AppsPage';
-import { HistoryPage } from './pages/HistoryPage';
-import { ChatHistoryPage } from './pages/ChatHistoryPage';
+import { AiPage } from './pages/AiPage';
+import { MemoryPage } from './pages/MemoryPage';
+import { ReviewPage } from './pages/ReviewPage';
+import { InsightsPage } from './pages/InsightsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { RecordsPage } from './pages/RecordsPage';
 import { Toaster } from './components/ui/Toast';
 import { useAppStore } from './stores/useAppStore';
 import { useXiabanyaApi } from './hooks/useXiabanyaApi';
 
-export type PageKey = 'today' | 'report' | 'timeline' | 'heatmap' | 'apps' | 'history' | 'chatHistory' | 'settings';
+export type PageKey = 'today' | 'ai' | 'timeline' | 'memory' | 'review' | 'insights' | 'settings' | 'records';
 
 const PAGE_TITLES: Record<PageKey, string> = {
-  today: '今日工作台',
-  report: '生成报告',
-  timeline: '工作时间线',
-  heatmap: '时段热力图',
-  apps: '应用记录',
-  history: '历史报告',
-  chatHistory: '聊天记录',
+  today: '今天',
+  ai: 'AI 小黄鸭',
+  timeline: 'Timeline',
+  memory: 'Memory',
+  review: 'Review',
+  insights: 'Insights',
   settings: '设置',
+  records: 'AI 识别记录',
 };
 
 const PAGE_COMPONENTS: Record<PageKey, React.FC> = {
   today: TodayPage,
-  report: ReportPage,
   timeline: TimelinePage,
-  heatmap: HeatmapPage,
-  apps: AppsPage,
-  history: HistoryPage,
-  chatHistory: ChatHistoryPage,
+  ai: AiPage,
+  memory: MemoryPage,
+  review: ReviewPage,
+  insights: InsightsPage,
   settings: SettingsPage,
+  records: RecordsPage,
 };
 
 export function App() {

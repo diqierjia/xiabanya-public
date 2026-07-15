@@ -1,76 +1,91 @@
 sequenceDiagram
-    participant UI as Renderer
-    participant IPC as ipc-handlers
-    participant T as ActivitySessionTracker
-    participant AW as active-win
-    participant CL as Classifier
-    participant DB as DatabaseService
-    participant SEG as SegmentService
-    participant SS as ScreenshotService
-    participant AI as AIService
+    actor User
+    participant Renderer as 🖥️ DeskPetRenderer<br/>(Canvas Window)
+    participant Main as 🧵 Main Process<br/>(DeskPetBridge)
+    participant Core as 🧠 DeskPetCore<br/>(StateMachine+AttributeEngine)
+    participant DB as 💾 DeskPetRepository<br/>(better-sqlite3)
 
-    Note over UI,AI: === 活动追踪 + 合并流程 ===
-
-    UI->>IPC: tracker:start
-    IPC->>T: new ActivitySessionTracker(window)
-    IPC->>T: start(callback)
-    
-    loop 每 5 秒
-        T->>AW: activeWin()
-        AW-->>T: { app, title }
-        T->>CL: classify(app, title) + userCategories
-        CL-->>T: { category, confidence }
-        
-        alt 当前无活动段
-            T->>T: startNewSegment(app, title, category)
-        else 同 app + 同 category
-            T->>T: updateCurrentSegment(title, end_at)
-        else 活动切换 (不同 app/category)
-            T->>T: closeCurrentSegment()
-            T->>SEG: upsertSegment(closedSegment)
-            SEG->>DB: INSERT/UPDATE activity_segments
-            T->>T: startNewSegment(app, title, category)
-        end
-        
-        T-->>IPC: callback(newRecord)
-        IPC->>UI: tracker:onEvent (record)
+    %% ===== 初始化流程 =====
+    rect rgb(240,248,255)
+        Note over Main,DB: 1. 系统初始化
+        Main->>DB: load()
+        DB-->>Main: DeskPetSaveData | null
+        Main->>Core: AttributeEngine.load(saved)
+        Main->>Core: StateMachine.transition(saved.currentState)
+        Main->>Renderer: IPC send("deskPet:onStateUpdate", AnimationCommand)
+        Renderer->>Renderer: AnimationController.applyCommand()
+        Renderer->>Renderer: startRenderLoop()
+        Main->>Core: AttributeEngine.start() — 1s tick
     end
 
-    UI->>IPC: tracker:stop
-    IPC->>T: stop()
-    T->>T: closeCurrentSegment()
-    T->>SEG: upsertSegment(finalSegment)
-    SEG->>DB: INSERT activity_segments
+    %% ===== 应用状态推送（现有逻辑迁移） =====
+    rect rgb(255,250,240)
+        Note over Main,Core: 2. 应用状态变更（Tracker/Vision 触发）
+        Main->>Core: StateMachine.resolveState(appDriven, autonomous)
+        Core->>Core: priority arbitration
+        Core-->>Main: DeskPetStateV2 (resolved)
+        Main->>Core: AnimationResolver.resolve(state, emotion, ...)
+        Core-->>Main: AnimationCommand
+        Main->>Renderer: IPC send("deskPet:onStateUpdate", cmd)
+        Renderer->>Renderer: blend transition (300ms alpha)
+    end
 
-    Note over UI,AI: === AI识别 + 关联流程（活动切换时触发） ===
+    %% ===== 属性衰减 tick =====
+    rect rgb(240,255,240)
+        Note over Main,Core: 3. 属性衰减循环（每 1 秒）
+        loop 每 1 秒
+            Core->>Core: AttributeEngine.tick()
+            Core->>Core: mood/energy/hunger/intimacy decay
+            Core->>Core: evaluateAutonomousState()
+            alt 触发自主行为
+                Core-->>Main: AutonomousState (e.g. "hungry")
+                Main->>Core: StateMachine.resolveState(appDriven, autonomous)
+                Core-->>Main: new DeskPetStateV2
+                Main->>Core: AnimationResolver.resolve(...)
+                Core-->>Main: AnimationCommand
+                Main->>Renderer: IPC send("deskPet:onStateUpdate", cmd)
+            end
+            Main->>DB: save(DeskPetSaveData)
+        end
+    end
 
-    T->>T: closeCurrentSegment()
-    T->>SS: captureScreenshot(mainWindow)
-    SS-->>T: JPEG Buffer (base64)
-    
-    T->>IPC: 传递 segment + screenshot
-    IPC->>AI: classifyWithVision(apiKey, model, base64, app, title)
-    AI->>AI: enhanced prompt with few-shot + JSON schema
-    AI-->>IPC: { title, category, summary }
-    
-    IPC->>DB: addVisionResult({ segment_id, ... })
-    DB-->>IPC: visionResultId
-    
-    IPC->>UI: vision:onResult (visionResult with segment_id)
+    %% ===== 用户交互流程 =====
+    rect rgb(255,240,245)
+        Note over User,Renderer: 4. 用户点击交互（petting）
+        User->>Renderer: 鼠标点击桌面宠物
+        Renderer->>Renderer: InteractionHandler 检测手势
+        Renderer-->>Main: IPC invoke("deskPet:onInteraction", { type: "pet" })
+        Main->>Core: StateMachine.requestInteraction("petted")
+        Core->>Core: priority check (interaction > autonomous)
+        Core-->>Main: StateChangeResult (accepted)
+        Main->>Core: AttributeEngine.applyInteraction("pet")
+        Core->>Core: mood += 5, intimacy += 3
+        Main->>Core: AnimationResolver.resolve("petted", "love", true)
+        Core-->>Main: AnimationCommand { effect: "hearts", bubble: "❤️" }
+        Main->>Renderer: IPC send("deskPet:onStateUpdate", cmd)
+        Renderer->>Renderer: 播放 petting 动画 + 爱心特效 + 气泡
+        Note over Core: 2 秒后 interaction timeout
+        Core->>Core: StateMachine clears pendingInteraction
+        Core-->>Main: revert to autonomous/app state
+        Main->>Renderer: IPC send("deskPet:onStateUpdate", revertedCmd)
+    end
 
-    Note over UI,AI: === 日报生成管线 ===
+    %% ===== 持久化保存流程 =====
+    rect rgb(245,240,255)
+        Note over Main,DB: 5. 定期持久化（每 30 秒 + 状态变更时）
+        Main->>Core: AttributeEngine.snapshot()
+        Core-->>Main: DeskPetSaveData
+        Main->>DB: save(data)
+        DB->>DB: UPSERT desk_pet_state
+        DB-->>Main: ok
+    end
 
-    UI->>IPC: reports:generate { type, template, start, end }
-    IPC->>DB: getSegments({ start, end, exclude_from_report: false })
-    DB-->>IPC: ActivitySegment[] (with vision annotations)
-    
-    IPC->>AI: generateReport(apiKey, model, segments, prompt)
-    Note over AI: 输入是合并后的 segments + vision annotations
-    Note over AI: 不是原始 5s 粒度的 records
-    AI-->>IPC: markdown content
-    
-    IPC->>DB: createReport(report)
-    DB-->>IPC: Report with id
-    
-    IPC-->>UI: Report { id, content }
-    UI->>UI: 展示校对编辑界面
+    %% ===== 窗口销毁流程 =====
+    rect rgb(255,245,245)
+        Note over Main,DB: 6. 关闭/退出
+        Main->>Core: AttributeEngine.stop()
+        Main->>Core: AttributeEngine.snapshot()
+        Core-->>Main: DeskPetSaveData (final)
+        Main->>DB: save(data) — 最终保存
+        Main->>Renderer: destroy window
+    end

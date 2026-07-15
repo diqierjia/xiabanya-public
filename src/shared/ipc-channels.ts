@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   REPORTS_LIST: 'reports:list',
   REPORTS_GET: 'reports:get',
   REPORTS_CREATE: 'reports:create',
+  REPORTS_UPDATE: 'reports:update',
   REPORTS_DELETE: 'reports:delete',
   REPORTS_GENERATE: 'reports:generate',
 
@@ -42,6 +43,12 @@ export const IPC_CHANNELS = {
   VISION_LIST_BY_DATE: 'vision:listByDate',
   VISION_AUTO_STATUS: 'vision:autoStatus',
 
+  // 空闲时段
+  IDLE_LIST_BY_DATE: 'idle:listByDate',
+
+  // 主动通知
+  PROACTIVE_OFFWORK_PREDICTION: 'proactive:offworkPrediction',
+
   // 对话
   CHAT_STREAM_START: 'chat:streamStart',
   CHAT_STREAM_ABORT: 'chat:streamAbort',
@@ -49,6 +56,22 @@ export const IPC_CHANNELS = {
   CHAT_STREAM_DONE: 'chat:streamDone',
   CHAT_STREAM_ERROR: 'chat:streamError',
   CHAT_MESSAGES_LIST: 'chat:messagesList',
+  CHAT_QUEUE_MESSAGE: 'chat:queueMessage',
+  CHAT_QUEUE_LIST: 'chat:queueList',
+  CHAT_PROACTIVE_MESSAGE: 'chat:proactiveMessage',
+  CHAT_DESK_PET_MIRROR: 'chat:deskPetMirror',
+
+  // 长期记忆
+  MEMORY_LIST: 'memory:list',
+  MEMORY_EVENT_GET: 'memory:eventGet',
+  MEMORY_EVENT_UPDATE: 'memory:eventUpdate',
+  MEMORY_EVENT_DELETE: 'memory:eventDelete',
+  MEMORY_EVENT_ACTION: 'memory:eventAction',
+  MEMORY_ELEMENT_GET: 'memory:elementGet',
+  MEMORY_TOOL_DEBUG_LIST: 'memory:toolDebugList',
+  MEMORY_TOOL_DEBUG_GET_BY_ASSISTANT_MESSAGE: 'memory:toolDebugGetByAssistantMessage',
+  MEMORY_CHAT_RUNTIME_DEBUG: 'memory:chatRuntimeDebug',
+  MEMORY_UPDATED: 'memory:updated',
 
   // 桌宠
   DESK_PET_SET_ENABLED: 'deskPet:setEnabled',
@@ -61,6 +84,11 @@ export const IPC_CHANNELS = {
   DESK_PET_WINDOW_END_GESTURE: 'deskPetWindow:endGesture',
   DESK_PET_WINDOW_SET_CHAT_OPEN: 'deskPetWindow:setChatOpen',
   DESK_PET_WINDOW_TOGGLE_CHAT: 'deskPetWindow:toggleChat',
+  DESK_PET_BUBBLE_CONTENT_HEIGHT: 'deskPet:bubbleContentHeight',
+  DESK_PET_SCREEN_QUESTION_START: 'deskPet:screenQuestionStart',
+  DESK_PET_SCREEN_QUESTION_SUBMIT: 'deskPet:screenQuestionSubmit',
+  DESK_PET_SCREEN_QUESTION_CANCEL: 'deskPet:screenQuestionCancel',
+  DESK_PET_SCREEN_QUESTION_READY: 'deskPet:screenQuestionReady',
 
   // 导入导出
   EXPORT_JSON: 'export:json',

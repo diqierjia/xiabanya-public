@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import type { ActivityRecord, ChatHistoryMessage, ChatMessage, ChatMessagesQuery, DeskPetState, Report, VisionResult, VisionResultWithDuration, VisionQuery, TrackerSnapshot, RecordUpsertDTO, RecordsQuery, ReportsQuery } from '../shared/types';
+import type { ActivityRecord, ChatHistoryMessage, ChatMemoryRuntimeDebug, ChatMessage, ChatMessagesQuery, ChatStreamDeltaEvent, ChatStreamDoneEvent, DeskPetChatMirrorEvent, DeskPetState, IdlePeriod, MemoryDashboard, MemoryElementDetail, MemoryEventDetail, MemoryEventUpdate, MemoryListQuery, MemoryToolDebugRun, ProactiveMessage, QueuedChatMessage, Report, VisionResult, VisionResultWithDuration, VisionQuery, TrackerSnapshot, RecordUpsertDTO, RecordsQuery, ReportsQuery } from '../shared/types';
 
 type CallbackFn = (...args: unknown[]) => void;
 
@@ -19,6 +19,7 @@ const api = {
     list: (query: ReportsQuery) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_LIST, query) as Promise<Report[]>,
     get: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_GET, id) as Promise<Report | undefined>,
     create: (report: Omit<Report, 'id' | 'created_at'>) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_CREATE, report) as Promise<string>,
+    update: (id: string, content: string) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_UPDATE, id, content) as Promise<Report>,
     delete: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_DELETE, id),
     generate: (params: { report_type: string; template: string; start_date: string; end_date: string }) =>
       ipcRenderer.invoke(IPC_CHANNELS.REPORTS_GENERATE, params) as Promise<Report>,
@@ -58,17 +59,23 @@ const api = {
       return () => { ipcRenderer.removeListener(IPC_CHANNELS.VISION_ON_RESULT, listener); };
     },
   },
+  idle: {
+    listByDate: (query: { start: string; end: string; limit?: number }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.IDLE_LIST_BY_DATE, query) as Promise<IdlePeriod[]>,
+  },
   chat: {
     listMessages: (query?: ChatMessagesQuery) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_MESSAGES_LIST, query) as Promise<ChatHistoryMessage[]>,
-    startStream: (messages: ChatMessage[]) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_STREAM_START, messages) as Promise<string>,
+    queueMessage: (id: string, content: string) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_QUEUE_MESSAGE, { id, content }) as Promise<string | undefined>,
+    listQueuedMessages: () => ipcRenderer.invoke(IPC_CHANNELS.CHAT_QUEUE_LIST) as Promise<QueuedChatMessage[]>,
+    startStream: (messages: ChatMessage[], streamId?: string, queuedMessageId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_STREAM_START, messages, streamId, queuedMessageId) as Promise<string>,
     abortStream: (streamId: string) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_STREAM_ABORT, streamId),
-    onDelta: (cb: (event: { streamId: string; delta: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: { streamId: string; delta: string }) => cb(payload);
+    onDelta: (cb: (event: ChatStreamDeltaEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: ChatStreamDeltaEvent) => cb(payload);
       ipcRenderer.on(IPC_CHANNELS.CHAT_STREAM_DELTA, listener);
       return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_DELTA, listener); };
     },
-    onDone: (cb: (event: { streamId: string }) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: { streamId: string }) => cb(payload);
+    onDone: (cb: (event: ChatStreamDoneEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: ChatStreamDoneEvent) => cb(payload);
       ipcRenderer.on(IPC_CHANNELS.CHAT_STREAM_DONE, listener);
       return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_DONE, listener); };
     },
@@ -76,6 +83,32 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent, payload: { streamId: string; message: string }) => cb(payload);
       ipcRenderer.on(IPC_CHANNELS.CHAT_STREAM_ERROR, listener);
       return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_ERROR, listener); };
+    },
+    onProactiveMessage: (cb: (message: ProactiveMessage) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, message: ProactiveMessage) => cb(message);
+      ipcRenderer.on(IPC_CHANNELS.CHAT_PROACTIVE_MESSAGE, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_PROACTIVE_MESSAGE, listener); };
+    },
+    onDeskPetMirror: (cb: (event: DeskPetChatMirrorEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: DeskPetChatMirrorEvent) => cb(payload);
+      ipcRenderer.on(IPC_CHANNELS.CHAT_DESK_PET_MIRROR, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.CHAT_DESK_PET_MIRROR, listener); };
+    },
+  },
+  memory: {
+    list: (query?: MemoryListQuery) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_LIST, query) as Promise<MemoryDashboard>,
+    getEvent: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_EVENT_GET, id) as Promise<MemoryEventDetail | undefined>,
+    updateEvent: (id: string, update: MemoryEventUpdate) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_EVENT_UPDATE, id, update),
+    deleteEvent: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_EVENT_DELETE, id),
+    actionEvent: (id: string, action: 'pin' | 'unpin' | 'forget' | 'restore') => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_EVENT_ACTION, id, action),
+    getElement: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_ELEMENT_GET, id) as Promise<MemoryElementDetail | undefined>,
+    listToolDebug: (limit?: number) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_TOOL_DEBUG_LIST, limit) as Promise<MemoryToolDebugRun[]>,
+    getToolDebugForAssistantMessage: (assistantMessageId: string) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_TOOL_DEBUG_GET_BY_ASSISTANT_MESSAGE, assistantMessageId) as Promise<MemoryToolDebugRun | undefined>,
+    getChatRuntimeDebug: () => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_CHAT_RUNTIME_DEBUG) as Promise<ChatMemoryRuntimeDebug>,
+    onUpdated: (cb: () => void) => {
+      const listener = () => cb();
+      ipcRenderer.on(IPC_CHANNELS.MEMORY_UPDATED, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.MEMORY_UPDATED, listener); };
     },
   },
   deskPet: {
@@ -91,6 +124,19 @@ const api = {
     endGesture: () => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_END_GESTURE),
     setChatOpen: (open: boolean) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_SET_CHAT_OPEN, open),
     toggleChat: () => ipcRenderer.send(IPC_CHANNELS.DESK_PET_WINDOW_TOGGLE_CHAT),
+    notifyBubbleContentHeight: (height: number) => ipcRenderer.send(IPC_CHANNELS.DESK_PET_BUBBLE_CONTENT_HEIGHT, height),
+    startScreenQuestion: () => ipcRenderer.invoke(IPC_CHANNELS.DESK_PET_SCREEN_QUESTION_START),
+    submitScreenQuestion: (payload: { question: string; cropDataUrl: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.DESK_PET_SCREEN_QUESTION_SUBMIT, payload),
+    cancelScreenQuestion: () => ipcRenderer.invoke(IPC_CHANNELS.DESK_PET_SCREEN_QUESTION_CANCEL),
+    onScreenQuestionReady: (cb: (payload: { kind: 'overlay' | 'chatPending' | 'chatReady' | 'chatError'; id?: string; imageDataUrl?: string; message?: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { kind: 'overlay' | 'chatPending' | 'chatReady' | 'chatError'; id?: string; imageDataUrl?: string; message?: string }) => cb(payload);
+      ipcRenderer.on(IPC_CHANNELS.DESK_PET_SCREEN_QUESTION_READY, listener);
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.DESK_PET_SCREEN_QUESTION_READY, listener); };
+    },
+  },
+  proactive: {
+    getOffworkPrediction: () => ipcRenderer.invoke(IPC_CHANNELS.PROACTIVE_OFFWORK_PREDICTION) as Promise<{ minuteOfDay: number; displayTime: string; candidateCount: number; confidence: string; candidates: Array<{ date: string; minuteOfDay: number; source: string; weight: number }> } | null>,
   },
   exportJson: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_JSON),
   importJson: (data: unknown) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_JSON, data) as Promise<number>,

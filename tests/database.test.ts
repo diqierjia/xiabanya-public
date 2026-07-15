@@ -43,7 +43,7 @@ describe('DatabaseService', () => {
     it('returns a string ID', () => {
       const id = service.createRecord({
         title: 'Test Record',
-        category: '开发',
+        category: '代码开发',
         app: 'VSCode',
         window_title: 'app.ts',
         start_at: '2026-06-25 09:00:00',
@@ -57,7 +57,7 @@ describe('DatabaseService', () => {
     it('stores and retrieves correct data', () => {
       const id = service.createRecord({
         title: 'Code Review',
-        category: '开发',
+        category: '代码开发',
         app: 'GitHub',
         window_title: 'PR #42',
         start_at: '2026-06-25 14:00:00',
@@ -68,7 +68,7 @@ describe('DatabaseService', () => {
       const record = service.getRecord(id);
       expect(record).toBeDefined();
       expect(record!.title).toBe('Code Review');
-      expect(record!.category).toBe('开发');
+      expect(record!.category).toBe('代码开发');
       expect(record!.app).toBe('GitHub');
       expect(record!.window_title).toBe('PR #42');
       expect(record!.start_at).toBe('2026-06-25 14:00:00');
@@ -93,7 +93,7 @@ describe('DatabaseService', () => {
     it('allows specifying custom source', () => {
       const id = service.createRecord({
         title: 'Auto Tracked',
-        category: '沟通',
+        category: '沟通与协作',
         app: 'WeChat',
         window_title: '',
         start_at: '2026-06-25 09:00:00',
@@ -208,15 +208,15 @@ describe('DatabaseService', () => {
     beforeEach(() => {
       // Insert records on different dates
       service.createRecord({
-        title: 'D1 Morning', category: '开发', app: 'VSCode', window_title: 'app.ts',
+        title: 'D1 Morning', category: '代码开发', app: 'VSCode', window_title: 'app.ts',
         start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: '',
       });
       service.createRecord({
-        title: 'D1 Afternoon', category: '沟通', app: 'WeChat', window_title: '',
+        title: 'D1 Afternoon', category: '沟通与协作', app: 'WeChat', window_title: '',
         start_at: '2026-06-25 14:00:00', end_at: '2026-06-25 15:00:00', notes: '',
       });
       service.createRecord({
-        title: 'D2 Morning', category: '文档', app: 'Word', window_title: 'report.docx',
+        title: 'D2 Morning', category: '文稿写作', app: 'Word', window_title: 'report.docx',
         start_at: '2026-06-26 09:00:00', end_at: '2026-06-26 10:00:00', notes: '',
       });
     });
@@ -247,15 +247,15 @@ describe('DatabaseService', () => {
   describe('listRecords() filters', () => {
     beforeEach(() => {
       service.createRecord({
-        title: 'Code D1', category: '开发', app: 'VSCode', window_title: 'main.ts',
+        title: 'Code D1', category: '代码开发', app: 'VSCode', window_title: 'main.ts',
         start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: 'important feature',
       });
       service.createRecord({
-        title: 'Chat D1', category: '沟通', app: 'WeChat', window_title: '微信',
+        title: 'Chat D1', category: '沟通与协作', app: 'WeChat', window_title: '微信',
         start_at: '2026-06-25 10:00:00', end_at: '2026-06-25 10:30:00', notes: '',
       });
       service.createRecord({
-        title: 'Code D2', category: '开发', app: 'Cursor', window_title: 'utils.ts',
+        title: 'Code D2', category: '代码开发', app: 'Cursor', window_title: 'utils.ts',
         start_at: '2026-06-25 11:00:00', end_at: '2026-06-25 12:00:00', notes: 'refactoring',
       });
     });
@@ -271,15 +271,15 @@ describe('DatabaseService', () => {
     });
 
     it('filters by category', () => {
-      const records = service.listRecords({ start: '2026-06-25', end: '2026-06-25', category: '开发' });
+      const records = service.listRecords({ start: '2026-06-25', end: '2026-06-25', category: '代码开发' });
       expect(records).toHaveLength(2);
       for (const r of records) {
-        expect(r.category).toBe('开发');
+        expect(r.category).toBe('代码开发');
       }
     });
 
     it('filters by category with no match returns empty', () => {
-      const records = service.listRecords({ start: '2026-06-25', end: '2026-06-25', category: '设计' });
+      const records = service.listRecords({ start: '2026-06-25', end: '2026-06-25', category: '视觉设计' });
       expect(records).toHaveLength(0);
     });
 
@@ -289,7 +289,7 @@ describe('DatabaseService', () => {
     });
 
     it('combines q + category filter', () => {
-      const records = service.listRecords({ start: '2026-06-25', end: '2026-06-25', q: 'Code', category: '开发' });
+      const records = service.listRecords({ start: '2026-06-25', end: '2026-06-25', q: 'Code', category: '代码开发' });
       expect(records).toHaveLength(2);
     });
   });
@@ -311,9 +311,9 @@ describe('DatabaseService', () => {
         title: 'Test', category: '其他', app: '', window_title: '',
         start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: '',
       });
-      service.updateRecord(id, { category: '开发' });
+      service.updateRecord(id, { category: '代码开发' });
       const record = service.getRecord(id);
-      expect(record!.category).toBe('开发');
+      expect(record!.category).toBe('代码开发');
     });
 
     it('updates multiple fields at once', () => {
@@ -358,9 +358,9 @@ describe('DatabaseService', () => {
         title: 'Test', category: '其他', app: 'App', window_title: 'Win',
         start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: 'notes',
       });
-      service.updateRecordCategory(id, '开发');
+      service.updateRecordCategory(id, '代码开发');
       const record = service.getRecord(id);
-      expect(record!.category).toBe('开发');
+      expect(record!.category).toBe('代码开发');
       expect(record!.title).toBe('Test'); // unchanged
     });
   });
@@ -422,7 +422,7 @@ describe('DatabaseService', () => {
 
     beforeEach(() => {
       recordId = service.createRecord({
-        title: 'Tag Test', category: '开发', app: 'VSCode', window_title: '',
+        title: 'Tag Test', category: '代码开发', app: 'VSCode', window_title: '',
         start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: '',
       });
     });
@@ -600,7 +600,7 @@ describe('DatabaseService', () => {
       const id = service.addVisionResult({
         record_id: 'rec-1',
         title: 'Code Review',
-        category: '开发',
+        category: '代码开发',
         summary: 'Reviewed PR changes',
         raw_response: '{"summary": "..."}',
         app: 'GitHub',
@@ -616,12 +616,12 @@ describe('DatabaseService', () => {
 
     it('respects limit parameter', () => {
       service.addVisionResult({
-        record_id: 'rec-1', title: 'R1', category: '开发',
+        record_id: 'rec-1', title: 'R1', category: '代码开发',
         summary: '', raw_response: '', app: '', window_title: '',
         model: 'Qwen/Qwen3-VL-8B-Instruct',
       });
       service.addVisionResult({
-        record_id: 'rec-2', title: 'R2', category: '开发',
+        record_id: 'rec-2', title: 'R2', category: '代码开发',
         summary: '', raw_response: '', app: '', window_title: '',
         model: 'Qwen/Qwen3-VL-8B-Instruct',
       });
@@ -633,12 +633,12 @@ describe('DatabaseService', () => {
     // have undefined ordering. This test validates both records exist.
     it('stores multiple vision results', () => {
       service.addVisionResult({
-        record_id: 'rec-1', title: 'Result A', category: '开发',
+        record_id: 'rec-1', title: 'Result A', category: '代码开发',
         summary: '', raw_response: '', app: '', window_title: '',
         model: 'Qwen/Qwen3-VL-8B-Instruct',
       });
       service.addVisionResult({
-        record_id: 'rec-2', title: 'Result B', category: '开发',
+        record_id: 'rec-2', title: 'Result B', category: '代码开发',
         summary: '', raw_response: '', app: '', window_title: '',
         model: 'Qwen/Qwen3-VL-8B-Instruct',
       });
@@ -655,7 +655,7 @@ describe('DatabaseService', () => {
 
       vi.setSystemTime(new Date('2026-06-25T01:00:00.000Z'));
       service.addVisionResult({
-        record_id: 'rec-before', title: 'Before', category: '开发',
+        record_id: 'rec-before', title: 'Before', category: '代码开发',
         summary: '', raw_response: '', app: '', window_title: '',
         model: 'Qwen/Qwen3-VL-8B-Instruct',
       });
@@ -730,6 +730,19 @@ describe('DatabaseService', () => {
       expect(messages[0].content).toContain('日报');
     });
 
+    it('uses an explicit chat message id when provided', () => {
+      const id = service.addChatMessage({
+        id: 'proactive-message-1',
+        role: 'assistant',
+        content: '你今天看起来状态不错（我猜的）。',
+      });
+
+      const messages = service.listChatMessages();
+      expect(id).toBe('proactive-message-1');
+      expect(messages).toHaveLength(1);
+      expect(messages[0].id).toBe('proactive-message-1');
+    });
+
     it('rejects empty chat message content', () => {
       expect(() => {
         service.addChatMessage({ role: 'user', content: '   ' });
@@ -737,11 +750,186 @@ describe('DatabaseService', () => {
     });
   });
 
+  describe('chat memory retrieval', () => {
+    it('compacts the oldest eight turns at 25, then advances in eight-turn batches', () => {
+      for (let turn = 1; turn <= 25; turn += 1) {
+        service.addChatMessage({ id: `u-${turn}`, role: 'user', content: `问题 ${turn}` });
+        service.addChatMessage({ id: `a-${turn}`, role: 'assistant', content: `回答 ${turn}` });
+        service.advanceMemoryTurn();
+      }
+
+      const firstBatch = service.claimNextChatCompactionBatch();
+      expect(firstBatch).toMatchObject({ startTurn: 1, endTurn: 8 });
+      expect(firstBatch?.messages.map((message) => message.id)).toEqual([
+        'u-1', 'a-1', 'u-2', 'a-2', 'u-3', 'a-3', 'u-4', 'a-4',
+        'u-5', 'a-5', 'u-6', 'a-6', 'u-7', 'a-7', 'u-8', 'a-8',
+      ]);
+      expect(service.getPendingChatCompactionMessages()).toHaveLength(16);
+
+      service.completeChatCompaction(firstBatch!.id, {
+        conversationSummary: '用户正在讨论会话整理规则，后续需要保留最近原文与摘要的衔接。',
+        events: [{ title: '确定会话整理节奏', summary: '第 25 轮开始每批整理最早 8 轮。', confidence: 0.9 }],
+        elements: [{ name: '会话整理', type: 'concept', scope: 'project', state: '按 25 轮窗口和 8 轮批次执行' }],
+      });
+      expect(service.getChatWorkingSummary()).toContain('会话整理规则');
+      expect(service.getPendingChatCompactionMessages()).toEqual([]);
+      expect(service.listMemoryEvents()).toHaveLength(1);
+      expect(service.listMemoryElements().find((item) => item.name === '会话整理')?.current_state).toContain('25 轮窗口');
+
+      for (let turn = 26; turn <= 33; turn += 1) {
+        service.addChatMessage({ id: `u-${turn}`, role: 'user', content: `问题 ${turn}` });
+        service.addChatMessage({ id: `a-${turn}`, role: 'assistant', content: `回答 ${turn}` });
+        service.advanceMemoryTurn();
+      }
+      expect(service.claimNextChatCompactionBatch()).toMatchObject({ startTurn: 9, endTurn: 16 });
+    });
+
+    it('persists tool-call debug records with parameters, results, and adoption outcome', () => {
+      service.saveMemoryToolDebugRun({
+        userMessageId: 'msg-user-1',
+        assistantMessageId: 'msg-assistant-1',
+        turn: 12,
+        mode: 'tool',
+        calls: [{
+          name: 'search_events',
+          arguments: { query: '事件网络', limit: 3 },
+          result: { ok: true, events: '[evt-1] 事件网络方案' },
+        }],
+        usedEventIds: ['evt-1'],
+        usedElementIds: ['el-1'],
+        proposalCount: 0,
+      });
+
+      const [run] = service.listMemoryToolDebugRuns();
+      expect(run).toMatchObject({
+        user_message_id: 'msg-user-1',
+        assistant_message_id: 'msg-assistant-1',
+        turn: 12,
+        mode: 'tool',
+        used_event_ids: ['evt-1'],
+        used_element_ids: ['el-1'],
+        proposal_count: 0,
+      });
+      expect(run.calls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'search_events', arguments: { query: '事件网络', limit: 3 }, result: { ok: true, events: '[evt-1] 事件网络方案' } }),
+      ]));
+      expect(service.getMemoryToolDebugRunByAssistantMessageId('msg-assistant-1')?.id).toBe(run.id);
+    });
+
+    it('keeps a fallback diagnostic even when no tool was called', () => {
+      service.saveMemoryToolDebugRun({
+        turn: 13,
+        mode: 'fallback',
+        calls: [],
+        usedEventIds: [],
+        usedElementIds: [],
+        proposalCount: 0,
+        fallbackReason: '模型服务未返回兼容的工具调用响应。',
+      });
+
+      const [run] = service.listMemoryToolDebugRuns();
+      expect(run).toMatchObject({
+        mode: 'fallback',
+        calls: [],
+        used_event_ids: [],
+        fallback_reason: '模型服务未返回兼容的工具调用响应。',
+      });
+    });
+
+    it('defers default event-card injection while a source chat message is still short-term context', () => {
+      const [eventId] = service.createMemoryEvents([{
+        title: '确定记忆交接规则',
+        summary: '原始对话在短期上下文时不重复注入事件卡。',
+        narrative: '事件卡在原始对话滑出最近 25 轮后接手连续记忆。',
+        tags: ['记忆', '短期上下文'],
+        confidence: 0.9,
+      }], ['message-user-1', 'message-assistant-1'], 1, '事件卡先不要重复注入');
+
+      expect(service.findMemoryEventsForChat('记忆交接')).toHaveLength(1);
+      expect(service.findMemoryEventsForChat('记忆交接', 6, {
+        excludeSourceRefs: ['message-user-1', 'message-assistant-1'],
+      })).toEqual([]);
+      expect(service.getMemoryEvent(eventId)).toBeDefined();
+    });
+
+    it('keeps element-state history while default reads return the newest state', () => {
+      const elementId = service.setMemoryElementState({
+        name: '记忆系统', type: 'concept', scope: 'project', state: '初版方案讨论中', validAt: '2026-07-10 10:00:00', sourceRefs: ['msg-1'], turn: 1,
+      });
+      service.setMemoryElementState({
+        elementId, state: '今天相关工作接近完成', validAt: '2026-07-13 18:00:00', sourceRefs: ['msg-2'], turn: 2,
+      });
+
+      expect(service.getMemoryElement(elementId)?.current_state).toBe('今天相关工作接近完成');
+      expect(service.getMemoryElementAt(elementId, '2026-07-10 23:59:59')?.current_state).toBe('初版方案讨论中');
+    });
+
+    it('gives elements their own decay, adoption reset, and shared L0 ranking', () => {
+      service.createMemoryEvents([{
+        title: '较早事件', summary: '用于验证元素和事件共用 L0 名额。', confidence: 0.9,
+      }], [], 0);
+      const elementId = service.setMemoryElementState({
+        name: '当前项目', type: 'project', scope: 'project', state: '进行中', turn: 0,
+      });
+
+      service.advanceMemoryTurn();
+      service.advanceMemoryTurn();
+      expect(service.getMemoryElement(elementId)?.weight.value).toBeLessThan(1);
+
+      service.adoptMemoryElements([elementId], 2);
+      const element = service.getMemoryElement(elementId);
+      expect(element?.weight).toMatchObject({ value: 1, mention_count: 2, last_adopted_turn: 2 });
+      expect(service.listResidentMemory(3)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'element', value: expect.objectContaining({ id: elementId }) }),
+      ]));
+    });
+
+    it('treats 用户 and 下班鸭 as unique conversation anchors across event scopes', () => {
+      const projectId = service.setMemoryElementState({
+        name: '下班鸭', type: 'project', scope: 'project', state: '负责提醒', turn: 1,
+      });
+      const userScopedId = service.setMemoryElementState({
+        name: '下班鸭', type: 'project', scope: 'user', state: '负责提醒和陪伴', turn: 2,
+      });
+      const [eventId] = service.createMemoryEvents([{
+        title: '用户设定提醒约束', summary: '用户要求下班前提醒整理。', scope: 'user', confidence: 0.9,
+        elements: [{ name: '下班鸭', type: 'project', role: '执行者', state: '负责提醒和陪伴' }],
+      }], ['msg-user-1'], 2);
+
+      expect(projectId).toBe(userScopedId);
+      const duckCards = service.listMemoryElements().filter((element) => element.name === '下班鸭');
+      expect(duckCards).toEqual([expect.objectContaining({ id: projectId, special_role: 'assistant', current_state: '负责提醒和陪伴' })]);
+      expect(service.listMemoryElements()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: '用户', special_role: 'user' }),
+      ]));
+      expect(service.getMemoryEvent(eventId)?.elements).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: '用户', special_role: 'user', role: '对话参与者' }),
+        expect.objectContaining({ name: '下班鸭', special_role: 'assistant' }),
+      ]));
+    });
+
+    it('applies a verified mixed memory proposal as event and element changes', () => {
+      const result = service.applyMemoryProposal({
+        sourceMessageIds: ['msg-user-1'],
+        evidence: [{ message_id: 'msg-user-1', quote: '我叫小橙子' }],
+        changes: [
+          { kind: 'element', name: '小橙子', type: 'person', scope: 'user' },
+          { kind: 'element_state', name: '记忆系统', type: 'concept', scope: 'project', state: '今天相关工作接近完成', valid_at: '2026-07-13 18:00:00' },
+          { kind: 'event', title: '记忆系统进入收尾阶段', summary: '用户确认今天相关工作差不多了。', confidence: 0.65, scope: 'project' },
+        ],
+      }, 3);
+
+      expect(result.proposalId).toMatch(/^memprop_/);
+      expect(result.eventIds).toHaveLength(1);
+      expect(service.listMemoryElements().map((element) => element.name)).toEqual(expect.arrayContaining(['小橙子', '记忆系统']));
+    });
+  });
+
   // ===== Export / Import =====
   describe('exportAll() / importAll()', () => {
     it('exportAll returns records and reports', () => {
       service.createRecord({
-        title: 'Test', category: '开发', app: 'VSCode', window_title: '',
+        title: 'Test', category: '代码开发', app: 'VSCode', window_title: '',
         start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: '',
       });
       service.createReport({
@@ -761,7 +949,7 @@ describe('DatabaseService', () => {
           {
             id: 'imp-1',
             title: 'Imported',
-            category: '开发',
+            category: '代码开发',
             app: 'VSCode',
             window_title: '',
             start_at: '2026-06-25 09:00:00',
@@ -783,7 +971,7 @@ describe('DatabaseService', () => {
           {
             id: 'imp-bad',
             title: 'Bad',
-            category: '开发',
+            category: '代码开发',
             app: 'VSCode',
             window_title: '',
             start_at: '',

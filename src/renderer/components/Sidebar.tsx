@@ -1,11 +1,11 @@
 import {
-  LayoutDashboard,
-  FileText,
+  Bot,
   Clock,
-  Grid3X3,
-  Monitor,
-  History,
-  MessageCircle,
+  FileText,
+  LayoutDashboard,
+  Lightbulb,
+  MemoryStick,
+  ScrollText,
   Settings,
 } from 'lucide-react';
 import type { PageKey } from '../App';
@@ -16,35 +16,14 @@ interface SidebarProps {
   onNavigate: (page: PageKey) => void;
 }
 
-interface NavGroup {
-  label: string;
-  items: { key: PageKey; label: string; icon: React.ElementType }[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: '工作记录',
-    items: [
-      { key: 'today', label: '今日', icon: LayoutDashboard },
-      { key: 'timeline', label: '时间线', icon: Clock },
-      { key: 'heatmap', label: '热力图', icon: Grid3X3 },
-      { key: 'apps', label: '应用', icon: Monitor },
-    ],
-  },
-  {
-    label: '报告',
-    items: [
-      { key: 'report', label: '生成报告', icon: FileText },
-      { key: 'history', label: '历史报告', icon: History },
-      { key: 'chatHistory', label: '聊天记录', icon: MessageCircle },
-    ],
-  },
-  {
-    label: '设置',
-    items: [
-      { key: 'settings', label: '设置', icon: Settings },
-    ],
-  },
+const NAV_ITEMS: { key: PageKey; label: string; icon: React.ElementType }[] = [
+  { key: 'today', label: 'Today', icon: LayoutDashboard },
+  { key: 'ai', label: 'AI 小黄鸭', icon: Bot },
+  { key: 'timeline', label: 'Timeline', icon: Clock },
+  { key: 'records', label: '记录', icon: ScrollText },
+  { key: 'memory', label: 'Memory', icon: MemoryStick },
+  { key: 'review', label: 'Review', icon: FileText },
+  { key: 'insights', label: 'Insights', icon: Lightbulb },
 ];
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
@@ -60,35 +39,39 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 py-3 overflow-y-auto">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="mb-3">
-            <p className="px-5 py-1 text-xs font-medium text-gray-500 uppercase tracking-wide">
-              {group.label}
-            </p>
-            {group.items.map((item) => {
-              const Icon = item.icon;
-              const active = currentPage === item.key;
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => onNavigate(item.key)}
-                  className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm transition-colors ${
-                    active
-                      ? 'bg-brand-700/60 text-brand-100 border-l-2 border-brand-400'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-l-2 border-transparent'
-                  }`}
-                >
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        ))}
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const active = currentPage === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => onNavigate(item.key)}
+              className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm transition-colors ${
+                active
+                  ? 'bg-brand-700/60 text-brand-100 border-l-2 border-brand-400'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-l-2 border-transparent'
+              }`}
+            >
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* App version */}
       <div className="px-5 py-3 border-t border-gray-700">
+        <button
+          onClick={() => onNavigate('settings')}
+          className={`mb-3 w-full flex items-center gap-3 py-2 text-sm transition-colors ${
+            currentPage === 'settings'
+              ? 'text-brand-100'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <Settings size={18} />
+          <span>设置</span>
+        </button>
         <span className="text-xs text-gray-600">v2.3</span>
       </div>
     </aside>

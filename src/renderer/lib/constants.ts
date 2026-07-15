@@ -1,12 +1,15 @@
 import { today as todayFn } from './utils';
 import { formatLocalDate } from '../../shared/time';
 
+// TimeMap v2 时间轴常量（从 timeMapUtils 重导出，方便统一引用）
+export { PX_PER_MINUTE, ACTIVITY_COLORS } from '../components/time-map/timeMapUtils';
+
 export { CATEGORIES, CATEGORY_COLORS, TEMPLATES, DEFAULT_SETTINGS, DESK_PET_STATES } from '../../shared/types';
 export type { Category, ActivityRecord, Report, VisionResult, VisionResultWithDuration, VisionQuery, VisionDailySummary, DeskPetState, RecordUpsertDTO, RecordsQuery, ReportsQuery, HeatmapCell, DailySummary, ChatMessage } from '../../shared/types';
 
 export const API_BASE = 'https://api.siliconflow.cn/v1';
 export const DEFAULT_VISION_MODEL = 'Qwen/Qwen3-VL-32B-Instruct';
-export const DEFAULT_REPORT_MODEL = 'deepseek-ai/DeepSeek-V3';
+export const DEFAULT_REPORT_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 export const DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V4-Flash';
 
 export const REPORT_TEMPLATES = [

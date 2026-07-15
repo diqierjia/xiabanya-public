@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import { Badge } from './ui/Badge';
 import { dur } from '../lib/utils';
 import type { VisionResultWithDuration } from '../../shared/types';
-import { formatUtcStorageTime, parseUtcStorageDateTime } from '../../shared/time';
+import { formatUtcStorageDateTimeLocal, formatUtcStorageTime, parseUtcStorageDateTime } from '../../shared/time';
 
 interface VisionResultCardProps {
   result: VisionResultWithDuration;
@@ -139,7 +139,7 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
             <span>置信度: {result.confidence || '-'}</span>
             <span>类型: {result.activity_type || '-'}</span>
             <span>模型: {result.model || '-'}</span>
-            <span>时间: {result.created_at}</span>
+            <span>时间: {formatUtcStorageDateTimeLocal(result.created_at)}</span>
           </div>
         </div>
       )}

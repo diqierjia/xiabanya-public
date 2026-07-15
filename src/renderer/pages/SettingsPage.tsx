@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Save, Trash2, Download, Upload, Plus, Pencil, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, Download, Loader2, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -10,11 +10,19 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 import { formatLocalDate } from '../../shared/time';
+import { DEFAULT_API_BASE_URL } from '../../shared/types';
 
 interface UserCategory {
   name: string;
   color: string;
   keywords: string[];
+}
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+interface PersistOptions {
+  apply?: () => Promise<void> | void;
+  successMessage?: string;
 }
 
 // 合法模型列表（用于校验 DB 中的旧值，自动替换为默认）
@@ -24,17 +32,15 @@ const VALID_VISION_MODELS = [
   'Qwen/Qwen2.5-VL-72B-Instruct',
 ];
 const VALID_REPORT_MODELS = [
-  'deepseek-ai/DeepSeek-V3',
-  'Qwen/Qwen2.5-72B-Instruct',
-  'Qwen/Qwen2.5-32B-Instruct',
+  'deepseek-ai/DeepSeek-V4-Flash',
+  'Qwen/Qwen3.5-9B',
 ];
 const VALID_CHAT_MODELS = [
   'deepseek-ai/DeepSeek-V4-Flash',
-  'deepseek-ai/DeepSeek-V3',
-  'Qwen/Qwen2.5-32B-Instruct',
+  'deepseek-ai/DeepSeek-V4-Pro',
 ];
 const DEFAULT_VISION = 'Qwen/Qwen3-VL-32B-Instruct';
-const DEFAULT_REPORT = 'deepseek-ai/DeepSeek-V3';
+const DEFAULT_REPORT = 'deepseek-ai/DeepSeek-V4-Flash';
 const DEFAULT_CHAT = 'deepseek-ai/DeepSeek-V4-Flash';
 
 function normalizeScreenshotInterval(value: number): number {
@@ -47,7 +53,10 @@ export function SettingsPage() {
   const { settings, loaded, fetchSettings, setSetting } = useSettingsStore();
   const { setTrackerRunning, setVisionAutoRunning } = useAppStore();
   const [showClear, setShowClear] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [apiKey, setApiKey] = useState('');
+  const [customApiEnabled, setCustomApiEnabled] = useState(false);
+  const [customApiBaseUrl, setCustomApiBaseUrl] = useState('');
   const [visionModel, setVisionModel] = useState('');
   const [reportModel, setReportModel] = useState('');
   const [chatModel, setChatModel] = useState('');
@@ -64,6 +73,13 @@ export function SettingsPage() {
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('#08a64f');
   const [newCatKeywords, setNewCatKeywords] = useState('');
+  const skipApiKeyAutosaveRef = useRef(true);
+  const skipCustomApiBaseUrlAutosaveRef = useRef(true);
+  const skipVisionModelAutosaveRef = useRef(true);
+  const skipReportModelAutosaveRef = useRef(true);
+  const skipChatModelAutosaveRef = useRef(true);
+  const initializedSettingsRef = useRef(false);
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -71,11 +87,28 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
+    return () => {
+      if (saveStatusTimerRef.current) {
+        clearTimeout(saveStatusTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || initializedSettingsRef.current) return;
+    initializedSettingsRef.current = true;
+    skipApiKeyAutosaveRef.current = true;
+    skipCustomApiBaseUrlAutosaveRef.current = true;
+    skipVisionModelAutosaveRef.current = true;
+    skipReportModelAutosaveRef.current = true;
+    skipChatModelAutosaveRef.current = true;
+    const customEnabled = settings.custom_api_enabled;
     setApiKey(settings.siliconflow_api_key);
-    setVisionModel(VALID_VISION_MODELS.includes(settings.vision_model) ? settings.vision_model : DEFAULT_VISION);
-    setReportModel(VALID_REPORT_MODELS.includes(settings.report_model) ? settings.report_model : DEFAULT_REPORT);
-    setChatModel(VALID_CHAT_MODELS.includes(settings.chat_model) ? settings.chat_model : DEFAULT_CHAT);
+    setCustomApiEnabled(settings.custom_api_enabled);
+    setCustomApiBaseUrl(settings.custom_api_base_url);
+    setVisionModel(customEnabled || VALID_VISION_MODELS.includes(settings.vision_model) ? settings.vision_model : DEFAULT_VISION);
+    setReportModel(customEnabled || VALID_REPORT_MODELS.includes(settings.report_model) ? settings.report_model : DEFAULT_REPORT);
+    setChatModel(customEnabled || VALID_CHAT_MODELS.includes(settings.chat_model) ? settings.chat_model : DEFAULT_CHAT);
     setScreenshotInterval(settings.screenshot_interval);
     setKeepScreenshots(settings.keep_screenshots);
     setAutoStartTracker(settings.auto_start_tracker);
@@ -83,43 +116,212 @@ export function SettingsPage() {
     setDeskPetEnabled(settings.desk_pet_enabled);
   }, [settings, loaded]);
 
-  const save = async () => {
-    try {
-      const interval = normalizeScreenshotInterval(screenshotInterval);
-      setScreenshotInterval(interval);
-
-      await setSetting('siliconflow_api_key', apiKey);
-      await setSetting('vision_model', visionModel);
-      await setSetting('report_model', reportModel);
-      await setSetting('chat_model', chatModel);
-      await setSetting('screenshot_interval', interval);
-      await setSetting('keep_screenshots', keepScreenshots);
-      await setSetting('auto_start_tracker', autoStartTracker);
-      await setSetting('auto_vision_toggle', autoVisionToggle);
-      await setSetting('desk_pet_enabled', deskPetEnabled);
-
-      if (autoStartTracker) {
-        await api.tracker.start();
-        setTrackerRunning(true);
-      } else {
-        await api.tracker.stop();
-        setTrackerRunning(false);
-      }
-
-      if (autoVisionToggle && apiKey.trim()) {
-        await api.vision.startAuto(interval);
-        setVisionAutoRunning(true);
-      } else {
-        await api.vision.stopAuto();
-        setVisionAutoRunning(false);
-      }
-
-      await fetchSettings();
-      toast.success('设置已保存');
-    } catch (error) {
-      console.error('[Settings] Save failed:', error);
-      toast.error('保存失败');
+  const markSaved = useCallback(() => {
+    setSaveStatus('saved');
+    if (saveStatusTimerRef.current) {
+      clearTimeout(saveStatusTimerRef.current);
     }
+    saveStatusTimerRef.current = setTimeout(() => {
+      setSaveStatus('idle');
+      saveStatusTimerRef.current = null;
+    }, 1800);
+  }, []);
+
+  const persistSetting = useCallback(async (
+    key: string,
+    value: string | boolean | number,
+    options: PersistOptions = {},
+  ) => {
+    try {
+      setSaveStatus('saving');
+      await setSetting(key, value);
+      await options.apply?.();
+      markSaved();
+      if (options.successMessage) {
+        toast.success(options.successMessage);
+      }
+    } catch (error) {
+      console.error(`[Settings] Failed to save ${key}:`, error);
+      setSaveStatus('error');
+      toast.error('设置保存失败');
+    }
+  }, [markSaved, setSetting]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (skipApiKeyAutosaveRef.current) {
+      skipApiKeyAutosaveRef.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      persistSetting('siliconflow_api_key', apiKey, {
+        apply: async () => {
+          if (autoVisionToggle && apiKey.trim()) {
+            const interval = normalizeScreenshotInterval(screenshotInterval);
+            await api.vision.startAuto(interval);
+            setVisionAutoRunning(true);
+          }
+        },
+      });
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [api, apiKey, autoVisionToggle, loaded, persistSetting, screenshotInterval, setVisionAutoRunning]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (skipCustomApiBaseUrlAutosaveRef.current) {
+      skipCustomApiBaseUrlAutosaveRef.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      persistSetting('custom_api_base_url', customApiBaseUrl.trim());
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [customApiBaseUrl, loaded, persistSetting]);
+
+  useEffect(() => {
+    if (!loaded || !customApiEnabled) return;
+    if (skipVisionModelAutosaveRef.current) {
+      skipVisionModelAutosaveRef.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      persistSetting('vision_model', visionModel.trim() || DEFAULT_VISION);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [customApiEnabled, loaded, persistSetting, visionModel]);
+
+  useEffect(() => {
+    if (!loaded || !customApiEnabled) return;
+    if (skipReportModelAutosaveRef.current) {
+      skipReportModelAutosaveRef.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      persistSetting('report_model', reportModel.trim() || DEFAULT_REPORT);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [customApiEnabled, loaded, persistSetting, reportModel]);
+
+  useEffect(() => {
+    if (!loaded || !customApiEnabled) return;
+    if (skipChatModelAutosaveRef.current) {
+      skipChatModelAutosaveRef.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      persistSetting('chat_model', chatModel.trim() || DEFAULT_CHAT);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [chatModel, customApiEnabled, loaded, persistSetting]);
+
+  const updateVisionModel = (value: string) => {
+    setVisionModel(value);
+    persistSetting('vision_model', value);
+  };
+
+  const updateReportModel = (value: string) => {
+    setReportModel(value);
+    persistSetting('report_model', value);
+  };
+
+  const updateChatModel = (value: string) => {
+    setChatModel(value);
+    persistSetting('chat_model', value);
+  };
+
+  const updateCustomApiEnabled = (enabled: boolean) => {
+    setCustomApiEnabled(enabled);
+    persistSetting('custom_api_enabled', enabled);
+    if (!enabled) {
+      const nextVisionModel = VALID_VISION_MODELS.includes(visionModel) ? visionModel : DEFAULT_VISION;
+      const nextReportModel = VALID_REPORT_MODELS.includes(reportModel) ? reportModel : DEFAULT_REPORT;
+      const nextChatModel = VALID_CHAT_MODELS.includes(chatModel) ? chatModel : DEFAULT_CHAT;
+      setVisionModel(nextVisionModel);
+      setReportModel(nextReportModel);
+      setChatModel(nextChatModel);
+      persistSetting('vision_model', nextVisionModel);
+      persistSetting('report_model', nextReportModel);
+      persistSetting('chat_model', nextChatModel);
+    }
+  };
+
+  const updateScreenshotInterval = (value: number) => {
+    const interval = normalizeScreenshotInterval(value);
+    setScreenshotInterval(interval);
+    persistSetting('screenshot_interval', interval, {
+      apply: async () => {
+        if (autoVisionToggle && apiKey.trim()) {
+          await api.vision.startAuto(interval);
+          setVisionAutoRunning(true);
+        }
+      },
+    });
+  };
+
+  const updateKeepScreenshots = (enabled: boolean) => {
+    setKeepScreenshots(enabled);
+    persistSetting('keep_screenshots', enabled);
+  };
+
+  const updateAutoStartTracker = (enabled: boolean) => {
+    setAutoStartTracker(enabled);
+    persistSetting('auto_start_tracker', enabled, {
+      apply: async () => {
+        if (enabled) {
+          await api.tracker.start();
+          setTrackerRunning(true);
+        } else {
+          await api.tracker.stop();
+          setTrackerRunning(false);
+        }
+      },
+      successMessage: enabled ? '窗口追踪已开启' : '窗口追踪已停止',
+    });
+  };
+
+  const updateAutoVisionToggle = (enabled: boolean) => {
+    if (enabled && !apiKey.trim()) {
+      setAutoVisionToggle(false);
+      persistSetting('auto_vision_toggle', false, {
+        apply: async () => {
+          await api.vision.stopAuto();
+          setVisionAutoRunning(false);
+        },
+      });
+      toast.error('请先填写 API Key，再开启自动截图识别');
+      return;
+    }
+
+    setAutoVisionToggle(enabled);
+    persistSetting('auto_vision_toggle', enabled, {
+      apply: async () => {
+        if (enabled) {
+          const interval = normalizeScreenshotInterval(screenshotInterval);
+          await api.vision.startAuto(interval);
+          setVisionAutoRunning(true);
+        } else {
+          await api.vision.stopAuto();
+          setVisionAutoRunning(false);
+        }
+      },
+      successMessage: enabled ? '自动截图识别已开启' : '自动截图识别已停止',
+    });
+  };
+
+  const updateDeskPetEnabled = (enabled: boolean) => {
+    setDeskPetEnabled(enabled);
+    persistSetting('desk_pet_enabled', enabled);
   };
 
   const fetchCustomCategories = async () => {
@@ -227,53 +429,117 @@ export function SettingsPage() {
     }
   };
 
+  const statusText = saveStatus === 'saving'
+    ? '保存中'
+    : saveStatus === 'saved'
+      ? '已保存'
+      : saveStatus === 'error'
+        ? '保存失败'
+        : '修改后自动保存';
+
   return (
-    <div className="max-w-2xl space-y-6">
-      {/* API Config */}
-      <Card className="p-5">
-        <Card.Header>
-          <Card.Title>API 配置</Card.Title>
-        </Card.Header>
+    <div className="grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="space-y-6">
+        <div className="flex items-center justify-end gap-2 text-xs text-gray-500">
+          {saveStatus === 'saving' ? (
+            <Loader2 size={14} className="animate-spin text-brand-600" />
+          ) : saveStatus === 'saved' ? (
+            <CheckCircle2 size={14} className="text-brand-600" />
+          ) : saveStatus === 'error' ? (
+            <AlertCircle size={14} className="text-red-500" />
+          ) : null}
+          <span>{statusText}</span>
+        </div>
+
+        {/* API Config */}
+        <Card className="p-5">
+          <Card.Header>
+            <div className="flex items-center justify-between gap-4">
+              <Card.Title>API 配置</Card.Title>
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={customApiEnabled}
+                  onChange={(e) => updateCustomApiEnabled(e.target.checked)}
+                  className="rounded"
+                />
+                <span>自定义 API</span>
+              </label>
+            </div>
+          </Card.Header>
         <div className="space-y-3">
           <Input
-            label="SiliconFlow API Key"
+            label={customApiEnabled ? 'API Key' : 'SiliconFlow API Key'}
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="sk-..."
           />
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              label="视觉模型"
-              value={visionModel}
-              onChange={(e) => setVisionModel(e.target.value)}
-              options={[
-                { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen3-VL 8B (快速)' },
-                { value: 'Qwen/Qwen3-VL-32B-Instruct', label: 'Qwen3-VL 32B (均衡)' },
-                { value: 'Qwen/Qwen2.5-VL-72B-Instruct', label: 'Qwen2.5-VL 72B (精准)' },
-              ]}
+          {customApiEnabled && (
+            <Input
+              label="自定义 API 地址"
+              value={customApiBaseUrl}
+              onChange={(e) => setCustomApiBaseUrl(e.target.value)}
+              placeholder={DEFAULT_API_BASE_URL}
+              hint="兼容 OpenAI /chat/completions 的 Base URL"
             />
-            <Select
-              label="报告模型"
-              value={reportModel}
-              onChange={(e) => setReportModel(e.target.value)}
-              options={[
-                { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3 (推荐)' },
-                { value: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen2.5 72B' },
-                { value: 'Qwen/Qwen2.5-32B-Instruct', label: 'Qwen2.5 32B (快速)' },
-              ]}
-            />
-            <Select
-              label="桌宠对话模型"
-              value={chatModel}
-              onChange={(e) => setChatModel(e.target.value)}
-              options={[
-                { value: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek-V4-Flash (推荐)' },
-                { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3' },
-                { value: 'Qwen/Qwen2.5-32B-Instruct', label: 'Qwen2.5 32B (快速)' },
-              ]}
-            />
-          </div>
+          )}
+          {customApiEnabled ? (
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="视觉模型"
+                value={visionModel}
+                onChange={(e) => setVisionModel(e.target.value)}
+                placeholder={DEFAULT_VISION}
+                hint="用于截图识别，按服务商文档填写模型名"
+              />
+              <Input
+                label="报告模型"
+                value={reportModel}
+                onChange={(e) => setReportModel(e.target.value)}
+                placeholder={DEFAULT_REPORT}
+                hint="用于生成日报和回顾"
+              />
+              <Input
+                label="桌宠对话模型"
+                value={chatModel}
+                onChange={(e) => setChatModel(e.target.value)}
+                placeholder={DEFAULT_CHAT}
+                hint="用于桌宠聊天"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="视觉模型"
+                value={visionModel}
+                onChange={(e) => updateVisionModel(e.target.value)}
+                options={[
+                  { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen3-VL 8B (快速)' },
+                  { value: 'Qwen/Qwen3-VL-32B-Instruct', label: 'Qwen3-VL 32B (均衡)' },
+                  { value: 'Qwen/Qwen2.5-VL-72B-Instruct', label: 'Qwen2.5-VL 72B (精准)' },
+                ]}
+              />
+              <Select
+                label="报告模型"
+                value={reportModel}
+                onChange={(e) => updateReportModel(e.target.value)}
+                options={[
+                  { value: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek-V4-Flash (推荐)' },
+                  { value: 'Qwen/Qwen3.5-9B', label: 'Qwen3.5-9B (省钱)' },
+                ]}
+              />
+              <Select
+                label="桌宠对话模型"
+                value={chatModel}
+                onChange={(e) => updateChatModel(e.target.value)}
+                options={[
+                  { value: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek-V4-Flash (推荐)' },
+                  { value: 'deepseek-ai/DeepSeek-V4-Pro', label: 'DeepSeek-V4-Pro (更强)' },
+                ]}
+              />
+            </div>
+          )}
         </div>
       </Card>
 
@@ -288,6 +554,7 @@ export function SettingsPage() {
             type="number"
             value={String(screenshotInterval)}
             onChange={(e) => setScreenshotInterval(Number(e.target.value))}
+            onBlur={(e) => updateScreenshotInterval(Number(e.target.value))}
             hint="1-60 分钟"
             className="w-32"
           />
@@ -295,7 +562,7 @@ export function SettingsPage() {
             <input
               type="checkbox"
               checked={keepScreenshots}
-              onChange={(e) => setKeepScreenshots(e.target.checked)}
+              onChange={(e) => updateKeepScreenshots(e.target.checked)}
               className="rounded"
             />
             <span className="text-sm text-gray-600">保留截图文件</span>
@@ -313,7 +580,7 @@ export function SettingsPage() {
             <input
               type="checkbox"
               checked={autoStartTracker}
-              onChange={(e) => setAutoStartTracker(e.target.checked)}
+              onChange={(e) => updateAutoStartTracker(e.target.checked)}
               className="rounded"
             />
             <span className="text-sm text-gray-600">启动时自动开始追踪</span>
@@ -322,7 +589,7 @@ export function SettingsPage() {
             <input
               type="checkbox"
               checked={autoVisionToggle}
-              onChange={(e) => setAutoVisionToggle(e.target.checked)}
+              onChange={(e) => updateAutoVisionToggle(e.target.checked)}
               className="rounded"
             />
             <span className="text-sm text-gray-600">自动开启截图识别</span>
@@ -331,7 +598,7 @@ export function SettingsPage() {
             <input
               type="checkbox"
               checked={deskPetEnabled}
-              onChange={(e) => setDeskPetEnabled(e.target.checked)}
+              onChange={(e) => updateDeskPetEnabled(e.target.checked)}
               className="rounded"
             />
             <span className="text-sm text-gray-600">启用桌宠</span>
@@ -430,13 +697,6 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      {/* Save */}
-      <div className="flex items-center gap-3">
-        <Button variant="primary" icon={Save} onClick={save}>
-          保存设置
-        </Button>
-      </div>
-
       {/* Data Management */}
       <Card className="p-5">
         <Card.Header>
@@ -454,6 +714,36 @@ export function SettingsPage() {
           </Button>
         </div>
       </Card>
+      </div>
+
+      <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+        <Card className="p-5">
+          <Card.Header>
+            <Card.Title>设置说明</Card.Title>
+          </Card.Header>
+          <div className="space-y-4 text-sm leading-6 text-gray-600">
+            <section>
+              <h3 className="font-medium text-gray-800">API 配置</h3>
+              <p>默认使用 SiliconFlow，只需要填写 API Key。视觉模型、报告模型和桌宠对话模型已经有默认选择，后续需要时再调整。</p>
+              {customApiEnabled && (
+                <p className="mt-2">自定义 API 适合兼容 OpenAI /chat/completions 的服务。地址示例：{DEFAULT_API_BASE_URL}。模型名需要按服务商文档原样填写。</p>
+              )}
+            </section>
+            <section>
+              <h3 className="font-medium text-gray-800">自动功能</h3>
+              <p>窗口追踪记录当前应用和窗口标题，是时间线的基础。自动截图识别会定时分析屏幕内容，用来生成观察事实和可能活动，需要先填写 API Key。</p>
+            </section>
+            <section>
+              <h3 className="font-medium text-gray-800">桌宠</h3>
+              <p>桌宠默认开启，用来显示下班鸭状态和提供聊天入口。它本身不会替你开启截图识别。</p>
+            </section>
+            <section>
+              <h3 className="font-medium text-gray-800">截图设置</h3>
+              <p>截图间隔默认 5 分钟即可。保留截图文件默认关闭，只有需要本地留图排查时再开启。</p>
+            </section>
+          </div>
+        </Card>
+      </aside>
 
       <ConfirmDialog
         open={showClear}

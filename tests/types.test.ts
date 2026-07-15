@@ -14,9 +14,9 @@ describe('CATEGORIES', () => {
 
   it('includes all expected category names', () => {
     const expected = [
-      '文档', '沟通', '开发', '学习', '设计',
-      '产品', '会议', '数据分析', '研究', 'AI/工具',
-      '配置环境', '其他',
+      '代码开发', '文稿写作', '视觉设计', '数据处理', '文献与阅读',
+      '沟通与协作', '音视频会议', '规划与管理', '检索与AI', '系统与配置',
+      '休闲娱乐', '其他',
     ];
     for (const cat of expected) {
       expect(CATEGORIES).toContain(cat);
@@ -65,14 +65,16 @@ describe('CATEGORY_COLORS', () => {
 
 // ===== DEFAULT_SETTINGS =====
 describe('DEFAULT_SETTINGS', () => {
-  it('has all 10 required fields', () => {
+  it('has all 12 required fields', () => {
     const keys = Object.keys(DEFAULT_SETTINGS);
-    expect(keys).toHaveLength(10);
+    expect(keys).toHaveLength(12);
   });
 
   it('has correct field names', () => {
     const expectedKeys = [
       'siliconflow_api_key',
+      'custom_api_enabled',
+      'custom_api_base_url',
       'vision_model',
       'report_model',
       'chat_model',
@@ -92,12 +94,17 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.siliconflow_api_key).toBe('');
   });
 
+  it('custom API defaults to disabled', () => {
+    expect(DEFAULT_SETTINGS.custom_api_enabled).toBe(false);
+    expect(DEFAULT_SETTINGS.custom_api_base_url).toBe('');
+  });
+
   it('vision_model defaults to a Qwen VL model', () => {
     expect(DEFAULT_SETTINGS.vision_model).toContain('Qwen');
   });
 
-  it('report_model defaults to DeepSeek-V3', () => {
-    expect(DEFAULT_SETTINGS.report_model).toBe('deepseek-ai/DeepSeek-V3');
+  it('report_model defaults to DeepSeek-V4-Flash', () => {
+    expect(DEFAULT_SETTINGS.report_model).toBe('deepseek-ai/DeepSeek-V4-Flash');
   });
 
   it('chat_model defaults to DeepSeek-V4-Flash', () => {
@@ -108,16 +115,18 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.screenshot_interval).toBe(5);
   });
 
-  it('boolean settings default to false', () => {
+  it('boolean settings use safe defaults', () => {
     expect(DEFAULT_SETTINGS.keep_screenshots).toBe(false);
     expect(DEFAULT_SETTINGS.auto_start_tracker).toBe(false);
     expect(DEFAULT_SETTINGS.auto_vision_toggle).toBe(false);
     expect(DEFAULT_SETTINGS.startup_with_windows).toBe(false);
-    expect(DEFAULT_SETTINGS.desk_pet_enabled).toBe(false);
+    expect(DEFAULT_SETTINGS.desk_pet_enabled).toBe(true);
   });
 
   it('all values have correct types', () => {
     expect(typeof DEFAULT_SETTINGS.siliconflow_api_key).toBe('string');
+    expect(typeof DEFAULT_SETTINGS.custom_api_enabled).toBe('boolean');
+    expect(typeof DEFAULT_SETTINGS.custom_api_base_url).toBe('string');
     expect(typeof DEFAULT_SETTINGS.vision_model).toBe('string');
     expect(typeof DEFAULT_SETTINGS.report_model).toBe('string');
     expect(typeof DEFAULT_SETTINGS.chat_model).toBe('string');

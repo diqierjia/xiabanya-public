@@ -16,7 +16,7 @@ export function RecordDialog({ open, onClose, onSave }: RecordDialogProps) {
   const defaultEnd = formatDateTimeLocalInput(now);
 
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('开发');
+  const [category, setCategory] = useState('代码开发');
   const [app, setApp] = useState('');
   const [startAt, setStartAt] = useState(defaultStart);
   const [endAt, setEndAt] = useState(defaultEnd);
@@ -30,7 +30,7 @@ export function RecordDialog({ open, onClose, onSave }: RecordDialogProps) {
       setStartAt(s);
       setEndAt(e);
       setTitle('');
-      setCategory('开发');
+      setCategory('代码开发');
       setApp('');
       setNotes('');
     }

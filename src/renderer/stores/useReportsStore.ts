@@ -8,6 +8,7 @@ interface ReportsState {
   generating: boolean;
   fetchReports: (query?: ReportsQuery) => Promise<void>;
   generate: (params: { report_type: string; template: string; start_date: string; end_date: string }) => Promise<Report | null>;
+  updateReport: (id: string, content: string) => Promise<Report>;
   deleteReport: (id: string) => Promise<void>;
 }
 
@@ -38,6 +39,15 @@ export const useReportsStore = create<ReportsState>((set) => ({
       set({ generating: false });
       return null;
     }
+  },
+
+  updateReport: async (id, content) => {
+    const api = getXiabanyaApi();
+    const report = await api.reports.update(id, content);
+    set((s) => ({
+      reports: s.reports.map((item) => (item.id === id ? report : item)),
+    }));
+    return report;
   },
 
   deleteReport: async (id) => {

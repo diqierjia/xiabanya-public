@@ -1,6 +1,5 @@
 import type { BrowserWindow } from 'electron';
 import activeWin from 'active-win';
-import { classify } from './classifier';
 import type { Category } from '../shared/types';
 import { formatUtcStorageDateTime } from '../shared/time';
 
@@ -14,9 +13,16 @@ export interface TrackerSession {
   durationMs: number;   // 累计时长（毫秒）
 }
 
+export interface TrackerWindowSample {
+  app: string;
+  title: string;
+  observedAt: string;
+}
+
 /** 追踪器回调：type='session' 时固化到数据库，type='snapshot' 仅用于实时 UI */
 export type TrackerCallback = (
   event:
+    | { type: 'window'; sample: TrackerWindowSample }
     | { type: 'session'; session: TrackerSession }
     | { type: 'snapshot'; session: TrackerSession }
 ) => void;
@@ -28,6 +34,7 @@ const SNAPSHOT_INTERVAL_MS = 30000;
  * 活动追踪器（会话合并模式）
  *
  * - 每 5 秒轮询一次活跃窗口
+ * - 每次轮询都上报原始 app/title，供 Vision 分析最近窗口轨迹
  * - 同一应用连续活跃 → 只更新 currentSession.endTime/durationMs，不写库
  * - 应用切换 → 固化上一个 session 为一条 ActivityRecord，开启新 session
  * - 每 30 秒 emit 一次 snapshot，供前端实时显示（不持久化）
@@ -88,11 +95,12 @@ export class ActivityTracker {
 
       const app = result.owner.name;
       const title = result.title;
-      const category = classify(app, title).category;
       const now = formatUtcStorageDateTime();
+      this.callback({ type: 'window', sample: { app, title, observedAt: now } });
 
       if (this.currentSession && this.currentSession.app === app) {
         // 同一应用：仅更新时间戳和累计时长
+        this.currentSession.title = title;
         this.currentSession.endTime = now;
         this.currentSession.durationMs += POLL_INTERVAL_MS;
       } else {
@@ -103,7 +111,7 @@ export class ActivityTracker {
         this.currentSession = {
           app,
           title,
-          category,
+          category: '其他',
           startTime: now,
           endTime: now,
           durationMs: 0,

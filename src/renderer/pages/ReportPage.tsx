@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Download, FileJson, Brain, Monitor } from 'lucide-react';
+import { Copy, Download, FileJson, Brain, Monitor, Save } from 'lucide-react';
 import { DateRangePicker } from '../components/DateRangePicker';
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -23,6 +23,7 @@ export function ReportPage() {
   const [generating, setGenerating] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // v2.2: 素材预览
   const [materialPreview, setMaterialPreview] = useState<{
@@ -63,12 +64,49 @@ export function ReportPage() {
       setContent(report.content);
       setEditedContent(report.content);
       setReportId(report.id);
+      setEditMode(false);
       toast.success('报告已生成');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '未知错误';
       toast.error(`报告生成失败: ${msg}`);
     }
     setGenerating(false);
+  };
+
+  const startEdit = () => {
+    setEditedContent(content);
+    setEditMode(true);
+  };
+
+  const cancelEdit = () => {
+    setEditedContent(content);
+    setEditMode(false);
+  };
+
+  const saveEdit = async () => {
+    const nextContent = editedContent.trim();
+    if (!nextContent) {
+      toast.error('报告内容不能为空');
+      return;
+    }
+    if (!reportId) {
+      toast.error('没有可保存的报告记录');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const updated = await api.reports.update(reportId, editedContent);
+      setContent(updated.content);
+      setEditedContent(updated.content);
+      setEditMode(false);
+      toast.success('修改已保存');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : '保存失败';
+      toast.error(`保存失败: ${msg}`);
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const copyContent = () => {
@@ -236,9 +274,20 @@ export function ReportPage() {
               <span className="text-xs text-gray-400">{startDate} ~ {endDate}</span>
             </div>
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setEditMode(!editMode); setEditedContent(content); }}>
-                {editMode ? '预览' : '编辑'}
-              </Button>
+              {editMode ? (
+                <>
+                  <Button variant="secondary" size="sm" onClick={cancelEdit} disabled={savingEdit}>
+                    取消
+                  </Button>
+                  <Button variant="success" size="sm" icon={Save} loading={savingEdit} onClick={saveEdit}>
+                    保存
+                  </Button>
+                </>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={startEdit}>
+                  编辑
+                </Button>
+              )}
               <Button variant="secondary" size="sm" icon={Copy} onClick={copyContent}>
                 复制
               </Button>

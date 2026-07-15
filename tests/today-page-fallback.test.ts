@@ -4,7 +4,7 @@
  * Covers the three-layer fallback logic introduced in the bugfix:
  *   1. visionAutoRunning === true  → "等待首次截屏识别…"
  *   2. visionAutoRunning === false + API Key configured  → "Vision Auto 未启动，请在设置中开启自动识别"
- *   3. visionAutoRunning === false + API Key NOT configured → "请配置 API Key 以启用 AI 截屏识别"
+ *   3. visionAutoRunning === false + API Key NOT configured → "请在设置中输入 API Key，开启 AI 截屏识别"
  */
 
 import { describe, it, expect } from 'vitest';
@@ -24,7 +24,7 @@ function getHeroFallbackMessage(
   if (apiKey) {
     return 'Vision Auto 未启动，请在设置中开启自动识别';
   }
-  return '请配置 API Key 以启用 AI 截屏识别';
+  return '请在设置中输入 API Key，开启 AI 截屏识别';
 }
 
 // ---------------------------------------------------------------------------
@@ -63,24 +63,24 @@ describe('TodayPage Hero Banner fallback message', () => {
 
   // ---- Layer 3: Vision Auto is NOT running AND API Key is NOT configured ----
   describe('when visionAutoRunning is false and API Key is NOT configured', () => {
-    it('returns "请配置 API Key 以启用 AI 截屏识别" for empty string', () => {
+    it('returns "请在设置中输入 API Key，开启 AI 截屏识别" for empty string', () => {
       expect(getHeroFallbackMessage(false, '')).toBe(
-        '请配置 API Key 以启用 AI 截屏识别',
+        '请在设置中输入 API Key，开启 AI 截屏识别',
       );
     });
 
-    it('returns "请配置 API Key 以启用 AI 截屏识别" for undefined / null', () => {
+    it('returns "请在设置中输入 API Key，开启 AI 截屏识别" for undefined / null', () => {
       // TypeScript signature expects string but the runtime could receive
       // falsy values; JS truthiness check mirrors the original code.
       expect(getHeroFallbackMessage(false, undefined as unknown as string)).toBe(
-        '请配置 API Key 以启用 AI 截屏识别',
+        '请在设置中输入 API Key，开启 AI 截屏识别',
       );
       expect(getHeroFallbackMessage(false, null as unknown as string)).toBe(
-        '请配置 API Key 以启用 AI 截屏识别',
+        '请在设置中输入 API Key，开启 AI 截屏识别',
       );
     });
 
-    it('returns "请配置 API Key 以启用 AI 截屏识别" for whitespace-only key (edge case)', () => {
+    it('returns "请在设置中输入 API Key，开启 AI 截屏识别" for whitespace-only key (edge case)', () => {
       // A whitespace-only string is truthy in JS — this is consistent with
       // how the original code (`settings.siliconflow_api_key`) works.
       // If desired the implementation could be hardened to trim(), but that
@@ -104,7 +104,7 @@ describe('TodayPage Hero Banner fallback message', () => {
     });
 
     it('the old buggy message does not appear in any state', () => {
-      const oldMsg = '请配置 API Key 以启用 AI 截屏识别';
+      const oldMsg = '请在设置中输入 API Key，开启 AI 截屏识别';
 
       // State 1 (vision running) should NOT show the old message
       expect(getHeroFallbackMessage(true, '')).not.toBe(oldMsg);

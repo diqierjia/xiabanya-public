@@ -11,6 +11,11 @@ interface SettingsState {
   setSetting: (key: string, value: string | boolean | number) => Promise<void>;
 }
 
+function readBooleanSetting(raw: Record<string, string>, key: keyof AppSettings): boolean {
+  const value = raw[key];
+  return value === undefined ? Boolean(DEFAULT_SETTINGS[key]) : value === 'true';
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   settings: { ...DEFAULT_SETTINGS },
   loading: false,
@@ -24,15 +29,17 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({
         settings: {
           siliconflow_api_key: raw.siliconflow_api_key || DEFAULT_SETTINGS.siliconflow_api_key,
+          custom_api_enabled: readBooleanSetting(raw, 'custom_api_enabled'),
+          custom_api_base_url: raw.custom_api_base_url || DEFAULT_SETTINGS.custom_api_base_url,
           vision_model: raw.vision_model || DEFAULT_SETTINGS.vision_model,
           report_model: raw.report_model || DEFAULT_SETTINGS.report_model,
           chat_model: raw.chat_model || DEFAULT_SETTINGS.chat_model,
           screenshot_interval: Number(raw.screenshot_interval) || DEFAULT_SETTINGS.screenshot_interval,
-          keep_screenshots: raw.keep_screenshots === 'true',
-          auto_start_tracker: raw.auto_start_tracker === 'true',
-          auto_vision_toggle: raw.auto_vision_toggle === 'true',
-          startup_with_windows: raw.startup_with_windows === 'true',
-          desk_pet_enabled: raw.desk_pet_enabled === 'true',
+          keep_screenshots: readBooleanSetting(raw, 'keep_screenshots'),
+          auto_start_tracker: readBooleanSetting(raw, 'auto_start_tracker'),
+          auto_vision_toggle: readBooleanSetting(raw, 'auto_vision_toggle'),
+          startup_with_windows: readBooleanSetting(raw, 'startup_with_windows'),
+          desk_pet_enabled: readBooleanSetting(raw, 'desk_pet_enabled'),
         },
         loading: false,
         loaded: true,

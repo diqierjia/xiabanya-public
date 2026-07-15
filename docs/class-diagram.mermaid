@@ -1,150 +1,262 @@
 classDiagram
     direction TB
 
-    class ActivityRecord {
+    %% ===== 类型枚举 =====
+    class AppDrivenState {
+        <<enumeration>>
+        idle
+        working
+        thinking
+        done
+        sleep
+    }
+    class AutonomousState {
+        <<enumeration>>
+        wandering
+        hungry
+        eating
+        happy
+        sad
+        celebrating
+    }
+    class InteractionState {
+        <<enumeration>>
+        petted
+        grabbed
+        fed
+        scared
+        excited
+    }
+
+    %% ===== Core 数据模型 =====
+    class DeskPetAttributes {
+        +number mood
+        +number energy
+        +number hunger
+        +number intimacy
+        +number lastTickTimestamp
+        +tick(deltaMs: number, appState: AppDrivenState): DeskPetAttributes
+        +applyInteraction(type: InteractionType): DeskPetAttributes
+        +clamp(): DeskPetAttributes
+    }
+
+    class EmotionType {
+        <<enumeration>>
+        neutral
+        happy
+        sad
+        angry
+        surprised
+        love
+    }
+
+    class BubbleData {
         +string id
-        +string title
-        +Category category
-        +string app
-        +string window_title
-        +string start_at
-        +string end_at
-        +number duration_seconds
-        +string segment_id
-        +string notes
-        +RecordSource source
-        +string created_at
-        +boolean is_achievement
-        +boolean exclude_from_report
+        +string text
+        +BubbleType type
+        +number durationMs
+        +number createdAt
     }
 
-    class ActivitySegment {
-        +string id
-        +string title
-        +Category category
-        +string app
-        +string start_at
-        +string end_at
-        +number duration_seconds
-        +number record_count
-        +string[] record_ids
-        +string notes
-        +RecordSource source
-        +boolean is_achievement
-        +boolean exclude_from_report
-        +VisionResult[] vision_results
-        +string created_at
+    class BubbleType {
+        <<enumeration>>
+        speech
+        thought
+        emotion
+        notification
     }
 
-    class UserCategory {
-        +string id
-        +string name
-        +string color
-        +string[] keywords
-        +string created_at
+    %% ===== 状态机 =====
+    class StateMachine {
+        -DeskPetStateV2 currentState
+        -DeskPetStateV2 previousState
+        -number stateEnteredAt
+        -InteractionState pendingInteraction
+        -number interactionTimeout
+        +transition(state: DeskPetStateV2): StateChangeResult
+        +requestInteraction(state: InteractionState): boolean
+        +getCurrentState(): DeskPetStateV2
+        +getPriority(state: DeskPetStateV2): number
+        +resolveState(appDriven: AppDrivenState, autonomous: AutonomousState|null): DeskPetStateV2
     }
 
-    class VisionResult {
-        +string id
-        +string segment_id
-        +string record_id
-        +string title
-        +Category category
-        +string summary
-        +string raw_response
-        +string app
-        +string window_title
-        +string model
-        +string created_at
+    class StateChangeResult {
+        +DeskPetStateV2 newState
+        +DeskPetStateV2 oldState
+        +boolean changed
+        +number transitionMs
     }
 
-    class Report {
-        +string id
-        +ReportType report_type
-        +string template
-        +string start_date
-        +string end_date
-        +string content
-        +string created_at
+    %% ===== 属性引擎 =====
+    class AttributeEngine {
+        -DeskPetAttributes attributes
+        -IntervalTimer tickTimer
+        +start(): void
+        +stop(): void
+        +getAttributes(): DeskPetAttributes
+        +applyDecay(appState: AppDrivenState): void
+        +applyInteraction(type: InteractionType): DeskPetAttributes
+        +evaluateAutonomousState(): AutonomousState|null
+        +getEmotion(): EmotionType
+        +load(saved: DeskPetAttributes): void
+        +snapshot(): DeskPetSaveData
     }
 
-    class AppSettings {
-        +string siliconflow_api_key
-        +string vision_model
-        +string report_model
-        +number screenshot_interval
-        +boolean keep_screenshots
-        +boolean auto_start_tracker
-        +boolean auto_vision_toggle
-        +boolean startup_with_windows
+    class InteractionType {
+        <<enumeration>>
+        pet
+        feed
+        grab
+        scare
+        celebrate
     }
 
-    class ToastMessage {
-        +string id
-        +string type
-        +string title
-        +string message
-        +number duration
+    %% ===== 动画解析器 =====
+    class AnimationResolver {
+        +resolve(state: DeskPetStateV2, emotion: EmotionType, transitioning: boolean): AnimationCommand
+        +getTransitionMs(from: DeskPetStateV2, to: DeskPetStateV2): number
+        +shouldShowBubble(state: DeskPetStateV2, emotion: EmotionType): BubbleData|null
     }
 
-    ActivitySegment "1" --> "*" ActivityRecord : contains
-    ActivitySegment "1" --> "*" VisionResult : has
-    UserCategory "0..*" --> "1" Category : extends
-    ActivitySegment --> Category : uses
-    ActivityRecord --> Category : uses
-
-    class ActivitySessionTracker {
-        -ActivitySegment currentSegment
-        -Date lastPollTime
-        +start(callback)
-        +stop()
-        +isRunning() boolean
-        +getCurrentSegment() ActivitySegment
-        -poll() Promise
-        -shouldMerge(app, category) boolean
-        -closeCurrentSegment() ActivitySegment
-        -startNewSegment(app, title, category) void
+    class AnimationCommand {
+        +string baseState
+        +EmotionType emotionOverlay
+        +boolean useTransition
+        +number transitionMs
+        +BubbleData bubble
+        +string effectType
     }
 
-    class SegmentService {
-        -DatabaseService db
-        +getSegments(query) ActivitySegment[]
-        +getSegment(id) ActivitySegment
-        +upsertSegment(segment) string
-        +mergeRecords(segmentId, recordIds) void
-        +getSegmentWithVision(id) ActivitySegment
+    %% ===== 持久化 =====
+    class DeskPetRepository {
+        +save(data: DeskPetSaveData): void
+        +load(): DeskPetSaveData|null
+        +DatabaseService db
     }
 
-    class NotificationService {
-        +send(title, body) void
-        +sendDailySummary(summary) void
-        +isSupported() boolean
+    class DeskPetSaveData {
+        +DeskPetAttributes attributes
+        +number lastTickTimestamp
+        +DeskPetStateV2 currentState
+        +number createdAt
+        +number updatedAt
     }
 
-    class DatabaseService {
-        -db Database
-        +getInstance() DatabaseService
-        +listRecords(query) ActivityRecord[]
-        +createRecord(dto, source) string
-        +updateRecord(id, dto) void
-        +deleteRecord(id) void
-        +listSegments(query) ActivitySegment[]
-        +getSegment(id) ActivitySegment
-        +upsertSegment(segment) string
-        +listUserCategories() UserCategory[]
-        +createUserCategory(uc) string
-        +updateUserCategory(id, uc) void
-        +deleteUserCategory(id) void
-        +addVisionResult(vr) string
-        +listVisionResults(limit) VisionResult[]
-        +listReports(query) Report[]
-        +createReport(report) string
-        +getSetting(key, defaultVal) string
-        +setSetting(key, value) void
-        +exportAll() object
-        +importAll(data) number
-        +migrateV2toV21() void
+    %% ===== 桥接层（主进程） =====
+    class DeskPetBridge {
+        -StateMachine stateMachine
+        -AttributeEngine attributeEngine
+        -DeskPetRepository repository
+        -BrowserWindow deskPetWindow
+        +init(window: BrowserWindow): void
+        +destroy(): void
+        +pushAppState(state: AppDrivenState): void
+        +handleInteraction(type: InteractionType): void
+        +tick(): void
+        -sendToRenderer(command: AnimationCommand): void
+        -persistState(): void
+        +getStatus(): DeskPetStatus
     }
 
-    ActivitySessionTracker --> SegmentService : uses
-    SegmentService --> DatabaseService : uses
+    class DeskPetStatus {
+        +DeskPetStateV2 state
+        +DeskPetAttributes attributes
+        +EmotionType emotion
+        +boolean visible
+    }
+
+    %% ===== 渲染器（桌宠窗口） =====
+    class SpriteEngine {
+        -Image spriteSheet
+        -SpriteConfig config
+        -Map~string,FrameBounds~ renderBounds
+        +load(config: SpriteConfig, imageUrl: string): Promise~void~
+        +getFrame(state: string, frameIndex: number): FrameSource
+        +getRenderBounds(state: string): FrameBounds
+    }
+
+    class AnimationController {
+        -AnimationCommand currentCommand
+        -AnimationCommand previousCommand
+        -number transitionStartTime
+        -number currentFrame
+        +applyCommand(cmd: AnimationCommand): void
+        +tick(timestamp: number): RenderFrame
+        -alphaBlend(from: RenderFrame, to: RenderFrame, progress: number): RenderFrame
+    }
+
+    class InteractionHandler {
+        -Function onInteraction callback
+        +attach(canvas: HTMLCanvasElement): void
+        +detach(): void
+        -handleClick(event: PointerEvent): void
+        -handleDoubleClick(event: PointerEvent): void
+        -handleLongPress(event: PointerEvent): void
+        -detectGesture(type: string, duration: number): InteractionType
+    }
+
+    class BubbleSystem {
+        -BubbleData[] activeBubbles
+        +show(bubble: BubbleData): void
+        +dismiss(id: string): void
+        +render(ctx: CanvasRenderingContext2D): void
+        +clear(): void
+    }
+
+    class DeskPetRenderer {
+        -SpriteEngine spriteEngine
+        -AnimationController animController
+        -InteractionHandler interactionHandler
+        -BubbleSystem bubbleSystem
+        -HTMLCanvasElement canvas
+        +init(): Promise~void~
+        +handleStateUpdate(cmd: AnimationCommand): void
+        +startRenderLoop(): void
+        -renderFrame(frame: RenderFrame): void
+    }
+
+    class RenderFrame {
+        +FrameSource sprite
+        +EmotionType emotion
+        +number alpha
+        +BubbleData[] bubbles
+        +string effect
+    }
+
+    %% ===== 关系 =====
+    DeskPetBridge --> StateMachine : owns
+    DeskPetBridge --> AttributeEngine : owns
+    DeskPetBridge --> DeskPetRepository : uses
+    DeskPetBridge --> AnimationResolver : uses
+    DeskPetBridge --> DeskPetRenderer : IPC pushes to
+
+    StateMachine --> DeskPetStateV2 : manages
+    StateMachine --> StateChangeResult : produces
+    StateMachine --> DeskPetAttributes : reads
+
+    AttributeEngine --> DeskPetAttributes : manages
+    AttributeEngine --> AutonomousState : produces
+    AttributeEngine --> EmotionType : produces
+    AttributeEngine --> DeskPetSaveData : produces
+
+    AnimationResolver --> AnimationCommand : produces
+    AnimationResolver --> BubbleData : produces
+
+    DeskPetRepository --> DeskPetSaveData : persists
+    DeskPetRepository --> DatabaseService : uses
+
+    DeskPetRenderer --> SpriteEngine : owns
+    DeskPetRenderer --> AnimationController : owns
+    DeskPetRenderer --> InteractionHandler : owns
+    DeskPetRenderer --> BubbleSystem : owns
+
+    AnimationController --> AnimationCommand : receives
+    AnimationController --> RenderFrame : produces
+
+    InteractionHandler --> InteractionType : detects
+
+    BubbleSystem --> BubbleData : manages
+
+    DeskPetStateV2 <|-- AppDrivenState
+    DeskPetStateV2 <|-- AutonomousState
+    DeskPetStateV2 <|-- InteractionState
