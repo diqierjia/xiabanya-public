@@ -28,7 +28,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import type { TimeMapItem } from '../components/time-map/ActivityBlock';
 import { buildTimeMapSegments, getTimeMapVisibleWindow } from '../components/time-map/buildTimeMapSegments';
-import type { ActivityRecord, Category, IdlePeriod, TrackerSnapshot, VisionResultWithDuration } from '../../shared/types';
+import type { Category, IdlePeriod, TrackerSnapshot, VisionResultWithDuration } from '../../shared/types';
 import { formatUtcStorageTime, parseUtcStorageDateTime } from '../../shared/time';
 import duckImg from '../assets/duck_windows_icon_source_1024.png';
 import codeDevelopmentDuck from '../assets/category-ducks/code-development.png';
@@ -214,26 +214,6 @@ function getTimelineColor(item: TimeMapItem): string {
   return ACTIVITY_DOT_COLORS[item.activityType || 'unclear'] || '#60a5fa';
 }
 
-function recordToTimeMapItem(record: ActivityRecord): TimeMapItem {
-  const start = parseUtcStorageDateTime(record.start_at);
-  const end = parseUtcStorageDateTime(record.end_at);
-  const durationSec = start && end ? Math.max(60, Math.round((end.getTime() - start.getTime()) / 1000)) : 60;
-  const detail = record.notes || [record.app, record.window_title].filter(Boolean).join(' · ') || record.title;
-  return {
-    id: `record:${record.id}`,
-    title: record.title,
-    category: record.category,
-    startAt: record.start_at,
-    durationSec,
-    observedFact: detail,
-    possibleActivity: detail,
-    confidence: 'low',
-    activityType: 'unclear',
-    app: record.app,
-    windowTitle: record.window_title,
-  };
-}
-
 interface TimelinePreviewProps {
   items: TimeMapItem[];
   visibleStartAt: string;
@@ -374,8 +354,9 @@ export function TodayPage() {
   }, []);
 
   const summary = computeDailySummary();
-  const baseTimeMapItems = useMemo<TimeMapItem[]>(() => [
-    ...todayResults.map((result) => ({
+  // AI 观察、首页语义时间线只展示截图多模态识别；本地窗口追踪仅保留在独立统计/应用记录中。
+  const baseTimeMapItems = useMemo<TimeMapItem[]>(() => (
+    todayResults.map((result) => ({
       id: result.id,
       title: result.title,
       category: result.category,
@@ -388,9 +369,8 @@ export function TodayPage() {
       segmentMerge: result.segment_merge,
       app: result.app,
       windowTitle: result.window_title,
-    })),
-    ...todayRecords.map(recordToTimeMapItem),
-  ], [todayResults, todayRecords]);
+    }))
+  ), [todayResults]);
 
   const visibleWindow = useMemo(
     () => getTimeMapVisibleWindow(today(), baseTimeMapItems),

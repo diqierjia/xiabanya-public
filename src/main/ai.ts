@@ -1119,6 +1119,13 @@ export async function generateReport(
     '条'
   );
 
+  // 完整请求体写入 data/report-request-debug.json 供排查
+  try {
+    const { writeFileSync } = await import('fs');
+    const { join: pathJoin } = await import('path');
+    writeFileSync(pathJoin(process.cwd(), 'data', 'report-request-debug.json'), JSON.stringify({ model, systemPrompt, userContent }, null, 2), 'utf-8');
+  } catch {}
+
   // 报告生成 API 调用
   const reportFetchRes = await fetch(chatCompletionsUrl(apiBaseUrl), {
     method: 'POST',

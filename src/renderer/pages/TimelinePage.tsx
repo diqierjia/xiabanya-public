@@ -22,7 +22,7 @@ import { toast } from '../components/ui/Toast';
 import { dur, truncate } from '../lib/utils';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 import { useAppStore, MIN_TIMELINE_SCALE, MAX_TIMELINE_SCALE, TIMELINE_SCALE_STEP } from '../stores/useAppStore';
-import type { ActivityRecord, IdlePeriod, VisionResultWithDuration } from '../../shared/types';
+import type { IdlePeriod, VisionResultWithDuration } from '../../shared/types';
 import {
   formatLocalDate,
   formatUtcStorageDateTime,
@@ -86,26 +86,6 @@ const toTimeMapItem = (r: VisionResultWithDuration): TimeMapItem => ({
   app: r.app,
   windowTitle: r.window_title,
 });
-
-const toTrackerTimeMapItem = (record: ActivityRecord): TimeMapItem => {
-  const start = parseUtcStorageDateTime(record.start_at);
-  const end = parseUtcStorageDateTime(record.end_at);
-  const durationSec = start && end ? Math.max(60, Math.round((end.getTime() - start.getTime()) / 1000)) : 60;
-  const detail = record.notes || [record.app, record.window_title].filter(Boolean).join(' · ') || record.title;
-  return {
-    id: `record:${record.id}`,
-    title: record.title,
-    category: record.category,
-    startAt: record.start_at,
-    durationSec,
-    observedFact: detail,
-    possibleActivity: detail,
-    confidence: 'low',
-    activityType: 'unclear',
-    app: record.app,
-    windowTitle: record.window_title,
-  };
-};
 
 function startOfWeek(date = new Date()): Date {
   const d = new Date(date);
@@ -831,7 +811,6 @@ export function TimelinePage() {
   const initialWeek = useMemo(() => getWeekRange(), []);
   const fetchSeqRef = useRef(0);
   const [results, setResults] = useState<VisionResultWithDuration[]>([]);
-  const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [idlePeriods, setIdlePeriods] = useState<IdlePeriod[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -863,15 +842,9 @@ export function TimelinePage() {
         end: endDate,
         limit: 1000,
       });
-      const trackedRecords = await api.records.list({
-        start: startDate,
-        end: endDate,
-        q: search || undefined,
-      });
       if (seq !== fetchSeqRef.current) return;
       setResults(data);
       setIdlePeriods(idle);
-      setRecords(trackedRecords);
     } catch (e: unknown) {
       if (seq !== fetchSeqRef.current) return;
       setError(true);
@@ -890,16 +863,6 @@ export function TimelinePage() {
     const unsub = api.vision.onResult((result) => {
       const resultDate = localDateFromUtcStorage(result.created_at);
       if (resultDate >= startDate && resultDate <= endDate) {
-        fetchResults({ silent: true });
-      }
-    });
-    return unsub;
-  }, [api, endDate, fetchResults, startDate]);
-
-  useEffect(() => {
-    const unsub = api.tracker.onEvent((record) => {
-      const recordDate = localDateFromUtcStorage(record.start_at);
-      if (recordDate >= startDate && recordDate <= endDate) {
         fetchResults({ silent: true });
       }
     });
@@ -953,8 +916,8 @@ export function TimelinePage() {
   };
 
   const timelineActivities = useMemo<TimeMapItem[]>(
-    () => [...results.map(toTimeMapItem), ...records.map(toTrackerTimeMapItem)],
-    [records, results],
+    () => results.map(toTimeMapItem),
+    [results],
   );
 
   const weekDays = useMemo<WeekDay[]>(
@@ -1078,11 +1041,11 @@ export function TimelinePage() {
           actionLabel="重试"
           onAction={fetchResults}
         />
-      ) : results.length === 0 && records.length === 0 && idlePeriods.length === 0 ? (
+      ) : results.length === 0 && idlePeriods.length === 0 ? (
         <EmptyState
           icon={Eye}
-          title="本周暂无活动记录"
-          description="尝试切换周次，或确认追踪与 Vision Auto 正在运行"
+          title="本周无 AI 识别结果"
+          description="尝试切换周次，或确认 Vision Auto 正在运行"
         />
       ) : view === 'map' ? (
         <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-4">

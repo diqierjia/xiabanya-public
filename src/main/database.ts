@@ -1383,11 +1383,7 @@ export class DatabaseService {
   }
 
   getAllSettings(): Record<string, string> {
-    const rows = this.db.prepare(`
-      SELECT key, value
-      FROM settings
-      WHERE key != 'memory_element_weights_initialized'
-    `).all() as { key: string; value: string }[];
+    const rows = this.db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
     const result: Record<string, string> = {};
     for (const row of rows) {
       result[row.key] = row.value;
