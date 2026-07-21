@@ -9,6 +9,7 @@ import { Card } from '../components/ui/Card';
 import { toast } from '../components/ui/Toast';
 import { REPORT_TEMPLATES, today as todayFn } from '../lib/constants';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
+import { type UiLanguage, useTranslation } from '../i18n';
 
 type ReportType = '日报' | '周报' | '月报';
 
@@ -20,13 +21,27 @@ function promptKey(template: string, reportType: ReportType): string {
   return `${template}:${reportType}`;
 }
 
-function outputName(template: string, reportType: ReportType): string {
+function reportTypeLabel(reportType: ReportType, language: UiLanguage): string {
+  if (language === 'zh-CN') return reportType;
+  return { 日报: 'Daily', 周报: 'Weekly', 月报: 'Monthly' }[reportType];
+}
+
+function templateLabel(template: string, language: UiLanguage): string {
+  if (language === 'zh-CN') return template;
+  return template === '工作日报' ? 'Work Report' : 'Full-day Review';
+}
+
+function outputName(template: string, reportType: ReportType, language: UiLanguage): string {
+  if (language === 'en-US') {
+    const period = reportTypeLabel(reportType, language).toLowerCase();
+    return template === '工作日报' ? `Work ${period} report` : `Full ${period} review`;
+  }
   if (template === '工作日报') return `工作${reportType}`;
   if (reportType === '日报') return '全天回顾';
   return `全${reportType === '周报' ? '周' : '月'}回顾`;
 }
 
-const DEFAULT_REPORT_PROMPTS: Record<string, string> = {
+const DEFAULT_REPORT_PROMPTS_ZH: Record<string, string> = {
   [promptKey('工作日报', '日报')]: `请以清楚、简洁、可直接编辑提交的工作日报形式输出。
 
 建议结构：
@@ -83,8 +98,67 @@ const DEFAULT_REPORT_PROMPTS: Record<string, string> = {
 简要说明工作、个人/娱乐、空闲或不确定内容。`,
 };
 
+const DEFAULT_REPORT_PROMPTS_EN: Record<string, string> = {
+  [promptKey('工作日报', '日报')]: `Write a clear, concise daily work report that can be edited and submitted directly.
+
+Suggested structure:
+## Today's Work
+Group confirmed work by topic.
+## Reportable Progress
+Summarize progress clearly supported by the material without overstating completion.
+## Needs Confirmation
+List anything I need to add or confirm. Write "None" if there is nothing.`,
+  [promptKey('工作日报', '周报')]: `Write a clear, concise weekly work report that can be edited and submitted directly.
+
+Suggested structure:
+## This Week's Work
+Group confirmed work from this week by topic.
+## Progress
+Summarize progress clearly supported by the material without overstating completion.
+## Needs Confirmation and Next Week's Focus
+List anything I need to add, confirm, or continue following up on. Write "None" if there is nothing.`,
+  [promptKey('工作日报', '月报')]: `Write a clear, concise monthly work report that can be edited and submitted directly.
+
+Suggested structure:
+## This Month's Work
+Group confirmed work from this month by topic.
+## Progress
+Summarize progress clearly supported by the material without overstating completion.
+## Needs Confirmation and Next Month's Focus
+List anything I need to add, confirm, or continue following up on. Write "None" if there is nothing.`,
+  [promptKey('全天回顾', '日报')]: `Review the day's activities objectively and without excessive judgment.
+
+Suggested structure:
+## Day Overview
+Summarize the day in 2–4 sentences.
+## Activity Timeline
+Summarize the main activities and switches in chronological order.
+## Work and Life Distribution
+Briefly describe work, personal or leisure, idle, and uncertain activity.`,
+  [promptKey('全天回顾', '周报')]: `Review the week's activities objectively and without excessive judgment.
+
+Suggested structure:
+## Week Overview
+Summarize the week's activity pattern in 2–4 sentences.
+## Main Activities and Changes
+Summarize main activities and switches by time or topic.
+## Work and Life Distribution
+Briefly describe work, personal or leisure, idle, and uncertain activity.`,
+  [promptKey('全天回顾', '月报')]: `Review the month's activities objectively and without excessive judgment.
+
+Suggested structure:
+## Month Overview
+Summarize the month's activity pattern in 2–4 sentences.
+## Main Activities and Changes
+Summarize main activities and switches by time or topic.
+## Work and Life Distribution
+Briefly describe work, personal or leisure, idle, and uncertain activity.`,
+};
+
 export function ReportPage() {
   const api = useXiabanyaApi();
+  const { language, isEnglish } = useTranslation();
+  const defaultPrompts = language === 'en-US' ? DEFAULT_REPORT_PROMPTS_EN : DEFAULT_REPORT_PROMPTS_ZH;
   const [reportType, setReportType] = useState<ReportType>('日报');
   const [template, setTemplate] = useState<string>(REPORT_TEMPLATES[0]);
   const [startDate, setStartDate] = useState(todayFn);
@@ -95,11 +169,20 @@ export function ReportPage() {
   const [editMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
-  const [prompts, setPrompts] = useState<Record<string, string>>({ ...DEFAULT_REPORT_PROMPTS });
+  const [prompts, setPrompts] = useState<Record<string, string>>({ ...defaultPrompts });
   const [promptsLoaded, setPromptsLoaded] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
   const currentPromptKey = promptKey(template, reportType);
-  const currentOutputName = outputName(template, reportType);
+  const currentOutputName = outputName(template, reportType, language);
+
+  useEffect(() => {
+    setPrompts((previous) => Object.fromEntries(Object.entries(previous).map(([key, prompt]) => [
+      key,
+      prompt === DEFAULT_REPORT_PROMPTS_ZH[key] || prompt === DEFAULT_REPORT_PROMPTS_EN[key]
+        ? defaultPrompts[key]
+        : prompt,
+    ])));
+  }, [defaultPrompts]);
 
   // v2.2: 素材预览
   const [materialPreview, setMaterialPreview] = useState<{
@@ -122,7 +205,7 @@ export function ReportPage() {
       const legacy = type === '日报'
         ? await api.settings.get(`${REPORT_PROMPT_SETTING_PREFIX}${reportTemplate}`, '')
         : '';
-      return [key, saved.trim() || legacy.trim() || DEFAULT_REPORT_PROMPTS[key]] as const;
+      return [key, saved.trim() || legacy.trim() || defaultPrompts[key]] as const;
     })).then((entries) => {
       if (!active) return;
       setPrompts(Object.fromEntries(entries));
@@ -131,11 +214,11 @@ export function ReportPage() {
       if (active) setPromptsLoaded(true);
     });
     return () => { active = false; };
-  }, [api]);
+  }, [api, defaultPrompts]);
 
   const currentPrompt = useMemo(
-    () => prompts[currentPromptKey] || DEFAULT_REPORT_PROMPTS[currentPromptKey] || '',
-    [prompts, currentPromptKey],
+    () => prompts[currentPromptKey] || defaultPrompts[currentPromptKey] || '',
+    [prompts, currentPromptKey, defaultPrompts],
   );
 
   const setCurrentPrompt = (nextPrompt: string) => {
@@ -145,30 +228,30 @@ export function ReportPage() {
   const savePrompt = async () => {
     const prompt = currentPrompt.trim();
     if (!prompt) {
-      toast.error('提示词不能为空');
+      toast.error(isEnglish ? 'Prompt cannot be empty' : '提示词不能为空');
       return;
     }
     setSavingPrompt(true);
     try {
       await api.settings.set(`${REPORT_PROMPT_SETTING_PREFIX}${currentPromptKey}`, prompt);
       setCurrentPrompt(prompt);
-      toast.success(`${currentOutputName}提示词已保存`);
+      toast.success(isEnglish ? `${currentOutputName} prompt saved` : `${currentOutputName}提示词已保存`);
     } catch {
-      toast.error('提示词保存失败');
+      toast.error(isEnglish ? 'Could not save prompt' : '提示词保存失败');
     } finally {
       setSavingPrompt(false);
     }
   };
 
   const restoreDefaultPrompt = async () => {
-    const defaultPrompt = DEFAULT_REPORT_PROMPTS[currentPromptKey];
+    const defaultPrompt = defaultPrompts[currentPromptKey];
     setCurrentPrompt(defaultPrompt);
     setSavingPrompt(true);
     try {
       await api.settings.set(`${REPORT_PROMPT_SETTING_PREFIX}${currentPromptKey}`, defaultPrompt);
-      toast.success(`已恢复${currentOutputName}默认提示词`);
+      toast.success(isEnglish ? `${currentOutputName} prompt restored` : `已恢复${currentOutputName}默认提示词`);
     } catch {
-      toast.error('恢复默认失败');
+      toast.error(isEnglish ? 'Could not restore default' : '恢复默认失败');
     } finally {
       setSavingPrompt(false);
     }
@@ -207,10 +290,10 @@ export function ReportPage() {
       setEditedContent(report.content);
       setReportId(report.id);
       setEditMode(false);
-      toast.success('报告已生成');
+      toast.success(isEnglish ? 'Report generated' : '报告已生成');
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '未知错误';
-      toast.error(`报告生成失败: ${msg}`);
+      const msg = e instanceof Error ? e.message : (isEnglish ? 'Unknown error' : '未知错误');
+      toast.error(isEnglish ? `Could not generate report: ${msg}` : `报告生成失败: ${msg}`);
     }
     setGenerating(false);
   };
@@ -228,11 +311,11 @@ export function ReportPage() {
   const saveEdit = async () => {
     const nextContent = editedContent.trim();
     if (!nextContent) {
-      toast.error('报告内容不能为空');
+      toast.error(isEnglish ? 'Report content cannot be empty' : '报告内容不能为空');
       return;
     }
     if (!reportId) {
-      toast.error('没有可保存的报告记录');
+      toast.error(isEnglish ? 'There is no report to save' : '没有可保存的报告记录');
       return;
     }
 
@@ -242,10 +325,10 @@ export function ReportPage() {
       setContent(updated.content);
       setEditedContent(updated.content);
       setEditMode(false);
-      toast.success('修改已保存');
+      toast.success(isEnglish ? 'Changes saved' : '修改已保存');
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : '保存失败';
-      toast.error(`保存失败: ${msg}`);
+      const msg = error instanceof Error ? error.message : (isEnglish ? 'Could not save' : '保存失败');
+      toast.error(isEnglish ? `Could not save: ${msg}` : `保存失败: ${msg}`);
     } finally {
       setSavingEdit(false);
     }
@@ -253,7 +336,7 @@ export function ReportPage() {
 
   const copyContent = () => {
     navigator.clipboard.writeText(editMode ? editedContent : content);
-    toast.success('已复制到剪贴板');
+    toast.success(isEnglish ? 'Copied to clipboard' : '已复制到剪贴板');
   };
 
   const exportMd = () => {
@@ -261,9 +344,9 @@ export function ReportPage() {
     const blob = new Blob([data], { type: 'text/markdown' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${reportType}-${startDate}.md`;
+    a.download = `${reportTypeLabel(reportType, language)}-${startDate}.md`;
     a.click();
-    toast.success('Markdown 已导出');
+    toast.success(isEnglish ? 'Markdown exported' : 'Markdown 已导出');
   };
 
   const exportJson = () => {
@@ -273,9 +356,9 @@ export function ReportPage() {
     );
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${reportType}-${startDate}.json`;
+    a.download = `${reportTypeLabel(reportType, language)}-${startDate}.json`;
     a.click();
-    toast.success('JSON 已导出');
+    toast.success(isEnglish ? 'JSON exported' : 'JSON 已导出');
   };
 
   return (
@@ -283,7 +366,7 @@ export function ReportPage() {
       {/* Section 1: 报告周期 */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>报告周期</Card.Title>
+          <Card.Title>{isEnglish ? 'Report period' : '报告周期'}</Card.Title>
         </Card.Header>
         <Card.Content>
           <div className="flex gap-3">
@@ -294,7 +377,7 @@ export function ReportPage() {
                 size="sm"
                 onClick={() => setReportType(t)}
               >
-                {t}
+                {reportTypeLabel(t, language)}
               </Button>
             ))}
           </div>
@@ -304,7 +387,7 @@ export function ReportPage() {
       {/* Section 2: 模板选择 */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>选择报告用途</Card.Title>
+          <Card.Title>{isEnglish ? 'Choose report purpose' : '选择报告用途'}</Card.Title>
         </Card.Header>
         <Card.Content>
           <div className="grid grid-cols-2 gap-2">
@@ -318,10 +401,10 @@ export function ReportPage() {
                     : 'border-gray-200 text-gray-600 hover:border-gray-300'
                 }`}
               >
-                <span className="font-medium">{t}</span>
+                <span className="font-medium">{templateLabel(t, language)}</span>
                 <span className="block text-xs text-gray-400 mt-0.5">
-                  {t === '工作日报' && '排除娱乐、空闲、低置信内容'}
-                  {t === '全天回顾' && '包含工作、休息、娱乐的客观复盘'}
+                  {t === '工作日报' && (isEnglish ? 'Excludes leisure, idle, and low-confidence content' : '排除娱乐、空闲、低置信内容')}
+                  {t === '全天回顾' && (isEnglish ? 'An objective review of work, rest, and leisure' : '包含工作、休息、娱乐的客观复盘')}
                 </span>
               </button>
             ))}
@@ -334,15 +417,15 @@ export function ReportPage() {
         <Card.Header>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <Card.Title className="flex items-center gap-2"><SlidersHorizontal size={17} /> 编辑{currentOutputName}提示词</Card.Title>
-              <p className="text-xs text-gray-400 mt-1">每个复盘方案各自保存。可调整结构、重点和语气；素材范围与事实校验仍会保留。</p>
+              <Card.Title className="flex items-center gap-2"><SlidersHorizontal size={17} /> {isEnglish ? `Edit ${currentOutputName} prompt` : `编辑${currentOutputName}提示词`}</Card.Title>
+              <p className="text-xs text-gray-400 mt-1">{isEnglish ? 'Each review option saves its own prompt. You can adjust structure, focus, and tone; the material scope and fact checks remain in place.' : '每个复盘方案各自保存。可调整结构、重点和语气；素材范围与事实校验仍会保留。'}</p>
             </div>
             <div className="flex shrink-0 gap-2">
               <Button variant="secondary" size="sm" icon={RotateCcw} disabled={savingPrompt || !promptsLoaded} onClick={restoreDefaultPrompt}>
-                恢复默认
+                {isEnglish ? 'Restore default' : '恢复默认'}
               </Button>
               <Button variant="success" size="sm" icon={Save} loading={savingPrompt} disabled={!promptsLoaded} onClick={savePrompt}>
-                保存提示词
+                {isEnglish ? 'Save prompt' : '保存提示词'}
               </Button>
             </div>
           </div>
@@ -354,16 +437,16 @@ export function ReportPage() {
             onChange={(event) => setCurrentPrompt(event.target.value)}
             maxLength={6000}
             className="w-full min-h-[220px] px-3 py-2 border border-gray-300 rounded-lg text-sm leading-6 resize-y disabled:bg-gray-50 disabled:text-gray-400"
-            aria-label={`${currentOutputName}提示词`}
+            aria-label={isEnglish ? `${currentOutputName} prompt` : `${currentOutputName}提示词`}
           />
-          <p className="mt-2 text-xs text-gray-400">未保存的修改也会用于本次生成；保存后会作为此复盘方案的默认提示词。</p>
+          <p className="mt-2 text-xs text-gray-400">{isEnglish ? 'Unsaved edits will still be used for this generation. Once saved, they become the default prompt for this review option.' : '未保存的修改也会用于本次生成；保存后会作为此复盘方案的默认提示词。'}</p>
         </Card.Content>
       </Card>
 
       {/* Section 4: 日期范围 */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>日期范围</Card.Title>
+          <Card.Title>{isEnglish ? 'Date range' : '日期范围'}</Card.Title>
         </Card.Header>
         <Card.Content>
           <DateRangePicker
@@ -381,7 +464,7 @@ export function ReportPage() {
       {/* Section 5: 素材预览 */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>素材预览</Card.Title>
+          <Card.Title>{isEnglish ? 'Material preview' : '素材预览'}</Card.Title>
         </Card.Header>
         <Card.Content>
           {materialPreview.loading ? (
@@ -395,22 +478,22 @@ export function ReportPage() {
                 <div className="flex items-center gap-2">
                   <Brain size={18} className="text-brand-600" />
                   <span className="text-sm text-gray-700">
-                    AI 识别 <strong className="text-brand-700">{materialPreview.visionCount}</strong> 条
+                    {isEnglish ? <>AI recognitions <strong className="text-brand-700">{materialPreview.visionCount}</strong></> : <>AI 识别 <strong className="text-brand-700">{materialPreview.visionCount}</strong> 条</>}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Monitor size={18} className="text-amber-500" />
                   <span className="text-sm text-gray-700">
-                    窗口追踪 <strong className="text-amber-700">{materialPreview.recordCount}</strong> 条
+                    {isEnglish ? <>Window tracking <strong className="text-amber-700">{materialPreview.recordCount}</strong></> : <>窗口追踪 <strong className="text-amber-700">{materialPreview.recordCount}</strong> 条</>}
                   </span>
                 </div>
               </div>
               <p className="text-xs text-gray-400 mt-3">
-                工作日报会优先使用高置信工作内容；全天回顾会保留工作、休息和娱乐等全天活动
+                {isEnglish ? 'Work reports prioritize high-confidence work content; full-day reviews retain work, rest, leisure, and other daily activity.' : '工作日报会优先使用高置信工作内容；全天回顾会保留工作、休息和娱乐等全天活动'}
               </p>
             </>
           ) : (
-            <p className="text-sm text-gray-400">选择日期范围后将自动加载素材统计</p>
+            <p className="text-sm text-gray-400">{isEnglish ? 'Material statistics load automatically after you select a date range' : '选择日期范围后将自动加载素材统计'}</p>
           )}
         </Card.Content>
       </Card>
@@ -423,7 +506,7 @@ export function ReportPage() {
           loading={generating}
           onClick={handleGenerate}
         >
-          {generating ? 'AI 生成中...' : 'AI 生成报告'}
+          {generating ? (isEnglish ? 'Generating with AI...' : 'AI 生成中...') : (isEnglish ? 'Generate report with AI' : 'AI 生成报告')}
         </Button>
       </div>
 
@@ -440,9 +523,9 @@ export function ReportPage() {
         <Card>
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl">
             <div>
-              <span className="text-sm font-medium text-gray-700">{reportType}</span>
+              <span className="text-sm font-medium text-gray-700">{reportTypeLabel(reportType, language)}</span>
               <span className="text-xs text-gray-400 mx-2">·</span>
-              <span className="text-sm text-gray-600">{template}</span>
+              <span className="text-sm text-gray-600">{templateLabel(template, language)}</span>
               <span className="text-xs text-gray-400 mx-2">·</span>
               <span className="text-xs text-gray-400">{startDate} ~ {endDate}</span>
             </div>
@@ -450,19 +533,19 @@ export function ReportPage() {
               {editMode ? (
                 <>
                   <Button variant="secondary" size="sm" onClick={cancelEdit} disabled={savingEdit}>
-                    取消
+                    {isEnglish ? 'Cancel' : '取消'}
                   </Button>
                   <Button variant="success" size="sm" icon={Save} loading={savingEdit} onClick={saveEdit}>
-                    保存
+                    {isEnglish ? 'Save' : '保存'}
                   </Button>
                 </>
               ) : (
                 <Button variant="secondary" size="sm" onClick={startEdit}>
-                  编辑
+                  {isEnglish ? 'Edit' : '编辑'}
                 </Button>
               )}
               <Button variant="secondary" size="sm" icon={Copy} onClick={copyContent}>
-                复制
+                {isEnglish ? 'Copy' : '复制'}
               </Button>
               <Button variant="secondary" size="sm" icon={Download} onClick={exportMd}>
                 MD

@@ -33,7 +33,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
         <div className="w-12 h-12 flex items-center justify-center p-0 border-0 bg-transparent shrink-0">
           <img src={logoImg} alt={t('ai')} className="w-full h-full object-contain" />
         </div>
-        <span className="text-xl font-bold text-brand-400">{language === 'en-US' ? 'Xiabanya' : '下班鸭'}</span>
+        <span className="text-xl font-bold text-brand-400">{language === 'en-US' ? 'Ducky' : '下班鸭'}</span>
       </div>
 
       {/* Navigation */}

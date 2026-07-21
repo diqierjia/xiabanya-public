@@ -34,6 +34,7 @@ import type { TimeMapItem } from '../components/time-map/ActivityBlock';
 import { DetailPanel } from '../components/time-map/DetailPanel';
 import { ACTIVITY_COLORS, getDurationLabel } from '../components/time-map/timeMapUtils';
 import { areCategoriesCompatibleForMediumMerge, dominantCategoryByDuration } from '../components/time-map/segmentMergeRules';
+import { useTranslation } from '../i18n';
 
 type WeekDay = {
   dateStr: string;
@@ -52,6 +53,7 @@ type TimedWeekItem = TimeMapItem & {
 type TimelineAggregationLevel = 'activityType' | 'category' | 'detail';
 
 const WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const WEEKDAY_LABELS_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const TIMELINE_START_HOUR = 0;
 const VISIBLE_END_HOUR = 24;
 const DEFAULT_SCROLL_HOUR = 8;
@@ -119,9 +121,9 @@ function weekDates(startDate: string): string[] {
   return Array.from({ length: 7 }, (_, index) => formatLocalDate(addDays(start, index)));
 }
 
-function dayLabelForDate(dateStr: string): string {
+function dayLabelForDate(dateStr: string, isEnglish = false): string {
   const day = new Date(`${dateStr}T00:00:00`).getDay();
-  return WEEKDAY_LABELS[day === 0 ? 6 : day - 1] || '';
+  return (isEnglish ? WEEKDAY_LABELS_EN : WEEKDAY_LABELS)[day === 0 ? 6 : day - 1] || '';
 }
 
 function localBoundaryMs(dateStr: string, hour: number): number {
@@ -499,7 +501,7 @@ function aggregateTimelineItems(items: TimeMapItem[], timelineScale: number): Ti
   return merged.map(({ startMs: _startMs, endMs: _endMs, ...item }) => item);
 }
 
-function buildWeekDayItems(dateStr: string, activities: TimeMapItem[], idlePeriods: IdlePeriod[], now = new Date()): WeekDay {
+function buildWeekDayItems(dateStr: string, activities: TimeMapItem[], idlePeriods: IdlePeriod[], now = new Date(), isEnglish = false): WeekDay {
   const windowStartMs = localBoundaryMs(dateStr, TIMELINE_START_HOUR);
   const windowEndMs = localBoundaryMs(dateStr, VISIBLE_END_HOUR);
   const nowMs = now.getTime();
@@ -518,7 +520,7 @@ function buildWeekDayItems(dateStr: string, activities: TimeMapItem[], idlePerio
   return {
     dateStr,
     label: dateStr.slice(5).replace('-', '/'),
-    dayLabel: dayLabelForDate(dateStr),
+    dayLabel: dayLabelForDate(dateStr, isEnglish),
     isToday: dateStr === formatLocalDate(now),
     idleBands: absorbed.idleItems.map(({ startMs: _startMs, endMs: _endMs, ...item }) => item),
     items: items
@@ -665,6 +667,7 @@ function WeekTimeline({
   onZoomOut,
   onSelect,
   onClearSelection,
+  isEnglish,
 }: {
   days: WeekDay[];
   selectedId: string | null;
@@ -674,6 +677,7 @@ function WeekTimeline({
   onZoomOut: () => void;
   onSelect: (item: TimeMapItem) => void;
   onClearSelection: () => void;
+  isEnglish: boolean;
 }) {
   const pxPerMinute = timelineScale;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -731,7 +735,7 @@ function WeekTimeline({
         />
       </div>
       <div className="grid grid-cols-[60px_repeat(7,minmax(128px,1fr))] border-b border-gray-200 bg-white">
-        <div className="px-2 py-3 text-xs text-gray-400">全天</div>
+        <div className="px-2 py-3 text-xs text-gray-400">{isEnglish ? 'All day' : '全天'}</div>
         {days.map((day) => (
           <div
             key={day.dateStr}
@@ -829,6 +833,7 @@ function WeekTimeline({
 
 export function TimelinePage() {
   const api = useXiabanyaApi();
+  const { isEnglish } = useTranslation();
   const { timelineScale, adjustTimelineScale } = useAppStore();
   const initialWeek = useMemo(() => getWeekRange(), []);
   const fetchSeqRef = useRef(0);
@@ -943,8 +948,8 @@ export function TimelinePage() {
   );
 
   const weekDays = useMemo<WeekDay[]>(
-    () => weekDates(startDate).map((dateStr) => buildWeekDayItems(dateStr, timelineActivities, idlePeriods, now)),
-    [startDate, timelineActivities, idlePeriods, now],
+    () => weekDates(startDate).map((dateStr) => buildWeekDayItems(dateStr, timelineActivities, idlePeriods, now, isEnglish)),
+    [startDate, timelineActivities, idlePeriods, now, isEnglish],
   );
 
   const displayWeekDays = useMemo<WeekDay[]>(
@@ -980,11 +985,11 @@ export function TimelinePage() {
             <div className="text-sm font-semibold text-gray-900">
               {startDate.slice(5).replace('-', '/')} - {endDate.slice(5).replace('-', '/')}
             </div>
-            <div className="text-[11px] text-gray-400">周一到周日 · 08:00-24:00</div>
+            <div className="text-[11px] text-gray-400">{isEnglish ? 'Monday–Sunday · 08:00–24:00' : '周一到周日 · 08:00-24:00'}</div>
           </div>
           <Button variant="ghost" size="sm" icon={ChevronRight} onClick={() => setWeekByStart(addWeeks(startDate, 1))} />
           <Button variant="secondary" size="sm" icon={CalendarDays} onClick={() => setWeekByDate(formatLocalDate())}>
-            本周
+            {isEnglish ? 'This week' : '本周'}
           </Button>
         </div>
         <input
@@ -992,7 +997,7 @@ export function TimelinePage() {
           value={startDate}
           onChange={(e) => setWeekByDate(e.target.value)}
           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-          title="选择任意一天，跳转到所在周"
+          title={isEnglish ? 'Select any date to jump to its week' : '选择任意一天，跳转到所在周'}
         />
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1000,7 +1005,7 @@ export function TimelinePage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索标题/事实/分类..."
+            placeholder={isEnglish ? 'Search titles / facts / categories...' : '搜索标题/事实/分类...'}
             className="pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm w-56"
           />
         </div>
@@ -1011,7 +1016,7 @@ export function TimelinePage() {
             icon={MapIcon}
             onClick={() => setView('map')}
           >
-            周视图
+            {isEnglish ? 'Week view' : '周视图'}
           </Button>
           <Button
             variant={view === 'table' ? 'success' : 'secondary'}
@@ -1019,7 +1024,7 @@ export function TimelinePage() {
             icon={List}
             onClick={() => setView('table')}
           >
-            管理列表
+            {isEnglish ? 'Manage list' : '管理列表'}
           </Button>
         </div>
       </div>
@@ -1070,6 +1075,7 @@ export function TimelinePage() {
             onZoomOut={() => adjustTimelineScale(-TIMELINE_SCALE_STEP)}
             onSelect={(item) => setSelectedTimeMapId(item.id)}
             onClearSelection={() => setSelectedTimeMapId(null)}
+            isEnglish={isEnglish}
           />
           {selectedTimeMapItem && <DetailPanel item={selectedTimeMapItem} />}
         </div>
@@ -1080,13 +1086,13 @@ export function TimelinePage() {
               <thead>
                 <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
                   <th className="px-3 py-2 w-8"></th>
-                  <th className="px-3 py-2 text-left">时间</th>
-                  <th className="px-3 py-2 text-left">分类</th>
-                  <th className="px-3 py-2 text-left">标题</th>
-                  <th className="px-3 py-2 text-left">观察事实</th>
-                  <th className="px-3 py-2 text-left">置信/类型</th>
-                  <th className="px-3 py-2 text-left">时长</th>
-                  <th className="px-3 py-2 text-left">模型</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Time' : '时间'}</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Category' : '分类'}</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Title' : '标题'}</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Observed facts' : '观察事实'}</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Confidence / type' : '置信/类型'}</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Duration' : '时长'}</th>
+                  <th className="px-3 py-2 text-left">{isEnglish ? 'Model' : '模型'}</th>
                 </tr>
               </thead>
               <tbody>

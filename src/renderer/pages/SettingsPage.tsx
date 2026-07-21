@@ -11,7 +11,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 import { formatLocalDate } from '../../shared/time';
 import { CATEGORIES, DEFAULT_API_BASE_URL, normalizeManagedCategories } from '../../shared/types';
-import { type UiLanguage, useTranslation } from '../i18n';
+import { translate, type UiLanguage, useTranslation } from '../i18n';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -443,12 +443,12 @@ export function SettingsPage() {
   };
 
   const statusText = saveStatus === 'saving'
-    ? '保存中'
+    ? t('saving')
     : saveStatus === 'saved'
-      ? '已保存'
+      ? t('saved')
       : saveStatus === 'error'
-        ? '保存失败'
-        : '修改后自动保存';
+        ? t('saveFailed')
+        : t('autoSave');
 
   return (
     <div className="grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -568,7 +568,9 @@ export function SettingsPage() {
             value={language}
             onChange={(event) => {
               const nextLanguage = event.target.value as UiLanguage;
-              void persistSetting('language', nextLanguage, { successMessage: t('languageSaved') });
+              void persistSetting('language', nextLanguage, {
+                successMessage: translate(nextLanguage, 'languageSaved'),
+              });
             }}
             options={[
               { value: 'zh-CN', label: t('chinese') },
@@ -740,7 +742,7 @@ export function SettingsPage() {
             </section>
             <section>
               <h3 className="font-medium text-gray-800">{isEnglish ? 'Desk pet' : '桌宠'}</h3>
-              <p>{isEnglish ? 'The desk pet is enabled by default. It shows Xiabanya status, provides a chat entry point, and includes Ask Duck About Screen.' : '桌宠默认开启，用来显示下班鸭状态和提供聊天入口。此外还有看图问鸭功能。'}</p>
+              <p>{isEnglish ? 'The desk pet is enabled by default. It shows Ducky status, provides a chat entry point, and includes Ask Duck About Screen.' : '桌宠默认开启，用来显示下班鸭状态和提供聊天入口。此外还有看图问鸭功能。'}</p>
             </section>
             <section>
               <h3 className="font-medium text-gray-800">{t('screenshotSettings')}</h3>

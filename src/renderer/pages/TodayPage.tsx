@@ -216,15 +216,15 @@ function getStatusText(item: TimeMapItem | null, visionAutoRunning: boolean, isE
   return isEnglish ? 'Recording activity' : '记录中';
 }
 
-function buildHeroTitle(workItems: TimeMapItem[], latestItem: TimeMapItem | null): string {
+function buildHeroTitle(workItems: TimeMapItem[], latestItem: TimeMapItem | null, isEnglish: boolean): string {
   const longest = pickLongest(workItems);
   if (longest) {
-    return `今天主要投入在 ${longest.category}：${longest.title}`;
+    return isEnglish ? `Today was mainly spent on ${longest.category}: ${longest.title}` : `今天主要投入在 ${longest.category}：${longest.title}`;
   }
   if (latestItem) {
-    return `AI 观察到你最近在处理：${latestItem.title}`;
+    return isEnglish ? `AI observed you recently working on: ${latestItem.title}` : `AI 观察到你最近在处理：${latestItem.title}`;
   }
-  return '开启 Vision Auto 后，我会开始整理今天的工作脉络。';
+  return isEnglish ? 'Once Vision Auto is enabled, I will start organizing today’s work context.' : '开启 Vision Auto 后，我会开始整理今天的工作脉络。';
 }
 
 function buildHeroSubtitle(resultCount: number, workItems: TimeMapItem[]): string {
@@ -472,7 +472,7 @@ export function TodayPage() {
     [yesterdayTimeMapItems]
   );
   const yesterdayRhythm = useMemo(() => buildWorkRhythm(yesterdayTimeMapItems), [yesterdayTimeMapItems]);
-  const heroTitle = buildHeroTitle(reliableWorkItems, latestActivity);
+  const heroTitle = buildHeroTitle(reliableWorkItems, latestActivity, isEnglish);
   const heroSubtitle = buildHeroSubtitle(todayResults.length, reliableWorkItems);
   const statusText = getStatusText(latestActivity, visionAutoRunning, isEnglish, categoryLabel);
 
@@ -502,7 +502,7 @@ export function TodayPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-baseline gap-4">
-          <h2 className="text-xl font-semibold text-gray-900">今天</h2>
+          <h2 className="text-xl font-semibold text-gray-900">{t('today')}</h2>
           <span className="text-sm text-gray-400">{todayDate.date}</span>
           <span className="text-sm text-gray-400">{todayDate.weekday}</span>
         </div>
@@ -619,9 +619,9 @@ export function TodayPage() {
             {yesterdayRhythm ? (
               <>
                 <div className="flex items-center gap-3">
-                  <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                  <div className={`flex h-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-amber-100 text-amber-700 ${isEnglish ? 'w-16' : 'w-14'}`}>
                     <span className="text-xl font-semibold leading-5">{yesterdayRhythm.score}</span>
-                    <span className="mt-0.5 text-[10px] font-medium">{t('rhythmScore')}</span>
+                    <span className={`mt-0.5 text-[10px] font-medium ${isEnglish ? 'whitespace-nowrap' : ''}`}>{t('rhythmScore')}</span>
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-800">{getWorkRhythmSummary(yesterdayRhythm, isEnglish)}</p>
@@ -632,8 +632,8 @@ export function TodayPage() {
                 </div>
                 <div className="mt-4 rounded-xl border border-amber-100 bg-white/80 px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2 text-xs text-gray-400">
-                    <span>最投入的一段</span>
-                    <span>{formatUtcStorageTime(yesterdayRhythm.focusItem.startAt)} – {getItemEndTime(yesterdayRhythm.focusItem)} · {durationZh(yesterdayRhythm.focusItem.durationSec)}</span>
+                    <span>{isEnglish ? 'Most focused block' : '最投入的一段'}</span>
+                    <span>{formatUtcStorageTime(yesterdayRhythm.focusItem.startAt)} – {getItemEndTime(yesterdayRhythm.focusItem)} · {isEnglish ? durationLabel(yesterdayRhythm.focusItem.durationSec) : durationZh(yesterdayRhythm.focusItem.durationSec)}</span>
                   </div>
                   <p className="mt-1.5 text-sm font-semibold leading-5 text-gray-800">
                     {yesterdayRhythm.focusItem.possibleActivity || yesterdayRhythm.focusItem.title}
@@ -671,7 +671,7 @@ export function TodayPage() {
             </div>
           </div>
           <Button size="sm" variant="secondary" icon={ChevronRight} onClick={() => setPage('timeline')}>
-            完整时间线
+            {isEnglish ? 'Full timeline' : '完整时间线'}
           </Button>
         </Card.Header>
         <TimelinePreview

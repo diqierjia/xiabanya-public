@@ -48,15 +48,27 @@ Ducky is for individual developers, researchers, and others whose work happens m
 
 ## 🖼️ A quick look
 
+### Today: your workday at a glance
+
 ![Today: work overview](docs/images/today.png)
 
+### Timeline: review the whole week
+
+![Timeline: week overview](docs/images/timeline-week-overview.png)
+
+![Timeline: activity details](docs/images/timeline-week-detail.png)
+
 ![Timeline: evidence inspector](docs/images/timeline-week-inspector.png)
+
+### AI observation records
+
+![AI observation records](docs/images/ai-observations.png)
 
 ### 👀 Ask Ducky about the screen
 
 Need help with an error, a code fragment, a page, or a document? Launch **Ask Ducky** from the desk pet chat, select the relevant area, and ask in your own words. Ducky uses the full-screen context and your selection, then continues the answer in the chat without making you save or upload a screenshot by hand.
 
-![Ask Ducky about the screen](docs/images/ask-duck.gif)
+![Ask Ducky about the screen](docs/images/desk-pet-chat.png)
 
 ### 🧠 Memory you can inspect
 
