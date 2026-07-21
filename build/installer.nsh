@@ -1,6 +1,11 @@
 !include LogicLib.nsh
 !include nsDialogs.nsh
 
+LangString DesktopShortcutOptionsTitle 1033 "Installation options"
+LangString DesktopShortcutOptionsTitle 2052 "选择安装选项"
+LangString DesktopShortcutOptionsCheckbox 1033 "Create a desktop shortcut"
+LangString DesktopShortcutOptionsCheckbox 2052 "创建桌面快捷方式"
+
 !ifndef BUILD_UNINSTALLER
 Var DesktopShortcutCheckbox
 Var ShouldCreateDesktopShortcut
@@ -15,10 +20,10 @@ Function DesktopShortcutOptionsPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 24u "选择安装选项"
+  ${NSD_CreateLabel} 0 0 100% 24u "$(DesktopShortcutOptionsTitle)"
   Pop $0
 
-  ${NSD_CreateCheckbox} 0 34u 100% 12u "创建桌面快捷方式"
+  ${NSD_CreateCheckbox} 0 34u 100% 12u "$(DesktopShortcutOptionsCheckbox)"
   Pop $DesktopShortcutCheckbox
   ${NSD_Check} $DesktopShortcutCheckbox
 

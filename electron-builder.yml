@@ -7,9 +7,15 @@ win:
   target: nsis
   icon: src/renderer/assets/xiabanya-logo.ico
 nsis:
+  artifactName: Setup.${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
+  multiLanguageInstaller: true
+  installerLanguages:
+    - zh_CN
+    - en_US
+  displayLanguageSelector: true
   include: build/installer.nsh
 npmRebuild: false
 files:
