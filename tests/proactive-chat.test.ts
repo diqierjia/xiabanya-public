@@ -11,6 +11,7 @@ import {
   predictOffworkTime,
   shouldSendFocusRecover,
   shouldSendHumorEcho,
+  shouldSendOpenGreeting,
   shouldSendReturnGreeting,
   shouldSendStuckHelp,
 } from '../src/main/proactive-chat';
@@ -152,6 +153,10 @@ describe('parseProactiveCommand()', () => {
   it('recognizes focus recover authorization phrases', () => {
     expect(parseProactiveCommand('今天别让我刷太久')?.reply).toContain('盯着一点');
   });
+
+  it('keeps built-in command replies in English when English mode is active', () => {
+    expect(parseProactiveCommand('别烦我了', 'en-US')?.reply).toContain('lower profile');
+  });
 });
 
 describe('proactive triggers', () => {
@@ -199,5 +204,11 @@ describe('proactive triggers', () => {
 
     expect(shouldSendReturnGreeting(db, 10 * 60, new Date('2026-07-07T18:12:00'))).toBeNull();
     expect(shouldSendReturnGreeting(fakeDb(), 10 * 60, new Date('2026-07-07T18:12:00'))?.trigger).toBe('return_greeting');
+  });
+
+  it('uses English for built-in proactive messages in English mode', () => {
+    const db = fakeDb([], { language: 'en-US' });
+    expect(shouldSendReturnGreeting(db, 10 * 60, new Date('2026-07-07T18:12:00'))?.content).toBe('Welcome back.\n\nI’m still here.');
+    expect(shouldSendOpenGreeting(db, new Date('2026-07-07T18:12:00'))?.content).not.toMatch(/[\u4e00-\u9fff]/);
   });
 });

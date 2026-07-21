@@ -25,6 +25,16 @@ const DISTRACTION_MIN_SPAN_MINUTES = 10;
 const ACTIVE_TRIGGER_COOLDOWN_MINUTES = 90;
 const RETURN_GREETING_MAX_PER_DAY = 3;
 
+type AppLanguage = 'zh-CN' | 'en-US';
+
+function getAppLanguage(db: DatabaseService): AppLanguage {
+  return db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN';
+}
+
+function localized(db: DatabaseService, chinese: string, english: string): string {
+  return getAppLanguage(db) === 'en-US' ? english : chinese;
+}
+
 export interface OffworkDayInput {
   date: string;
   records: ActivityRecord[];
@@ -198,29 +208,29 @@ export function buildRecentOffworkDays(db: DatabaseService, now = new Date(), da
   return days;
 }
 
-export function parseProactiveCommand(content: string): { reply: string } | null {
+export function parseProactiveCommand(content: string, language: AppLanguage = 'zh-CN'): { reply: string } | null {
   const text = content.trim();
   if (!text) return null;
   if (/别烦我|今天安静|今天别主动|别主动找我|先别提醒/.test(text)) {
-    return { reply: '好，我今天少冒泡。\n\n有事我先攒着，你叫我我再说。' };
+    return { reply: language === 'en-US' ? 'Got it. I’ll keep a lower profile today.\n\nI’ll save anything important until you ask.' : '好，我今天少冒泡。\n\n有事我先攒着，你叫我我再说。' };
   }
   if (/少提醒|少打扰|降低频率/.test(text)) {
-    return { reply: '好，我会少提醒一点。\n\n只在比较有必要的时候冒个泡。' };
+    return { reply: language === 'en-US' ? 'Got it. I’ll remind you less often.\n\nI’ll only pop up when it seems genuinely useful.' : '好，我会少提醒一点。\n\n只在比较有必要的时候冒个泡。' };
   }
   if (/恢复正常|正常提醒|可以提醒/.test(text)) {
-    return { reply: '好，恢复正常。\n\n我还是会尽量少打扰你。' };
+    return { reply: language === 'en-US' ? 'Okay, back to normal.\n\nI’ll still try not to interrupt you too much.' : '好，恢复正常。\n\n我还是会尽量少打扰你。' };
   }
   if (/下班前.*(叫我|提醒我|收尾|整理)|收尾.*(叫我|提醒我)/.test(text)) {
-    return { reply: '好，我会按你最近的使用节奏，在快收尾的时候轻轻叫你一下。' };
+    return { reply: language === 'en-US' ? 'Okay. Based on your recent rhythm, I’ll give you a gentle nudge when it is nearly time to wrap up.' : '好，我会按你最近的使用节奏，在快收尾的时候轻轻叫你一下。' };
   }
   if (/别让我.*(刷|玩|摸鱼)|刷.*(太久|超过).*提醒|玩.*(太久|超过).*提醒|拉我回来|专注模式|学习模式/.test(text)) {
-    return { reply: '好，我会帮你盯着一点。\n\n如果你在娱乐内容里待久了，我轻轻拉你一下。' };
+    return { reply: language === 'en-US' ? 'Okay, I’ll keep a gentle eye on it.\n\nIf you stay in entertainment content for too long, I’ll nudge you back.' : '好，我会帮你盯着一点。\n\n如果你在娱乐内容里待久了，我轻轻拉你一下。' };
   }
   return null;
 }
 
 export function applyProactiveCommand(db: DatabaseService, content: string, now = new Date()): string | null {
-  const parsed = parseProactiveCommand(content);
+  const parsed = parseProactiveCommand(content, getAppLanguage(db));
   if (!parsed) return null;
 
   if (/别烦我|今天安静|今天别主动|别主动找我|先别提醒/.test(content)) {
@@ -294,7 +304,7 @@ export function shouldSendStuckHelp(db: DatabaseService, now = new Date()): Proa
 
   return makeMessage(
     'stuck_help',
-    '这个问题好像绕了一会儿了。\n\n要不要我帮你把现象和刚才试过的办法捋一下？',
+    localized(db, '这个问题好像绕了一会儿了。\n\n要不要我帮你把现象和刚才试过的办法捋一下？', 'This issue seems to have been circling for a while.\n\nWant me to sort out what is happening and what you have already tried?'),
     now
   );
 }
@@ -314,7 +324,7 @@ export function shouldSendFocusRecover(db: DatabaseService, now = new Date()): P
 
   return makeMessage(
     'focus_recover',
-    '你快被它吸走了。\n\n要不要我拉你回来学 20 分钟？',
+    localized(db, '你快被它吸走了。\n\n要不要我拉你回来学 20 分钟？', 'It is starting to pull you in.\n\nWant me to pull you back for 20 minutes of focused work?'),
     now
   );
 }
@@ -325,7 +335,7 @@ export function shouldSendHumorEcho(db: DatabaseService, latest: VisionResult, n
   if (db.getSetting(HUMOR_ECHO_LAST_SENT_DATE_KEY, '') === today) return null;
   if (latest.content_mood?.mood !== 'humorous' || !isSignalConfidenceUsable(latest.content_mood.confidence)) return null;
 
-  return makeMessage('humor_echo', '这个有点离谱哈哈。', now);
+  return makeMessage('humor_echo', localized(db, '这个有点离谱哈哈。', 'This is kind of wild, haha.'), now);
 }
 
 export function shouldSendReturnGreeting(db: DatabaseService, idleSeconds: number, now = new Date()): ProactiveMessage | null {
@@ -337,7 +347,7 @@ export function shouldSendReturnGreeting(db: DatabaseService, idleSeconds: numbe
   const count = lastDate === today ? Number(db.getSetting(RETURN_GREETING_COUNT_KEY, '0')) || 0 : 0;
   if (count >= RETURN_GREETING_MAX_PER_DAY) return null;
 
-  return makeMessage('return_greeting', '回来了。\n\n我还在。', now);
+  return makeMessage('return_greeting', localized(db, '回来了。\n\n我还在。', 'Welcome back.\n\nI’m still here.'), now);
 }
 
 export function markProactiveMessageSent(db: DatabaseService, message: ProactiveMessage, now = new Date()): void {
@@ -386,40 +396,41 @@ export function shouldSendWrapUp(db: DatabaseService, now = new Date()): { messa
     message: {
       id: randomUUID(),
       trigger: 'wrap_up',
-      content: '差不多到你平时收尾的点了。\n\n要不要我把今天能确定的几件事先捞出来？',
+      content: localized(db, '差不多到你平时收尾的点了。\n\n要不要我把今天能确定的几件事先捞出来？', 'It is about the time you usually start wrapping up.\n\nWant me to pull out the things from today that we can be confident about?'),
       created_at: formatUtcStorageDateTime(now),
     },
   };
 }
 
-const OPEN_GREETINGS = [
-  '来了。',
-  '在呢。',
-  '嘿。',
-  '哦，你来了。',
-  '我又站了一天了。',
-  '嘎。',
-  '今天也是打工的一天。',
-  '你来了，我还在。',
-  '刚才是不是有人说我坏话。',
-  '工作累了吧，我也累了。',
-  '今天天气不错，我在屏幕里感觉不到。',
-  '你知道吗，鸭子其实不会说话。',
-  '今天也是被 AI 支配的一天。',
-  '我帮你盯着呢，虽然什么也没盯住。',
-  '你今天看起来状态不错（我猜的）。',
-  '你回来啦！',
-  '嗷，是你！',
-  '等你半天了。',
-  '我就知道你会来。',
-  '今天想我了没。',
-  '来啦来啦！',
-  '终于有人跟我说话了。',
-  '你可算来了，我快无聊死了。',
+const OPEN_GREETINGS: Array<[string, string]> = [
+  ['来了。', 'You’re here.'],
+  ['在呢。', 'I’m here.'],
+  ['嘿。', 'Hey.'],
+  ['哦，你来了。', 'Oh, you’re here.'],
+  ['我又站了一天了。', 'I have been standing here all day again.'],
+  ['嘎。', 'Quack.'],
+  ['今天也是打工的一天。', 'Another day at work.'],
+  ['你来了，我还在。', 'You’re here. I’m still here too.'],
+  ['刚才是不是有人说我坏话。', 'Did someone say something bad about me just now?'],
+  ['工作累了吧，我也累了。', 'Work tired you out, huh? Me too.'],
+  ['今天天气不错，我在屏幕里感觉不到。', 'The weather seems nice today. I cannot feel it from inside the screen.'],
+  ['你知道吗，鸭子其实不会说话。', 'Did you know ducks do not actually talk?'],
+  ['今天也是被 AI 支配的一天。', 'Another day ruled by AI.'],
+  ['我帮你盯着呢，虽然什么也没盯住。', 'I was keeping an eye on things, though I did not catch much.'],
+  ['你今天看起来状态不错（我猜的）。', 'You seem to be doing well today. I’m guessing, of course.'],
+  ['你回来啦！', 'You’re back!'],
+  ['嗷，是你！', 'Oh, it’s you!'],
+  ['等你半天了。', 'I’ve been waiting for you for ages.'],
+  ['我就知道你会来。', 'I knew you would come by.'],
+  ['今天想我了没。', 'Did you miss me today?'],
+  ['来啦来啦！', 'Here you are!'],
+  ['终于有人跟我说话了。', 'Finally, someone is talking to me.'],
+  ['你可算来了，我快无聊死了。', 'You finally came. I was getting so bored.'],
 ];
 
 export function shouldSendOpenGreeting(db: DatabaseService, now = new Date()): ProactiveMessage | null {
   if (isQuietToday(db, now)) return null;
-  const content = OPEN_GREETINGS[Math.floor(Math.random() * OPEN_GREETINGS.length)];
+  const greeting = OPEN_GREETINGS[Math.floor(Math.random() * OPEN_GREETINGS.length)];
+  const content = greeting[getAppLanguage(db) === 'en-US' ? 1 : 0];
   return makeMessage('open_greeting', content, now);
 }

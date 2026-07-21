@@ -318,7 +318,7 @@ export function AiPage() {
       role: 'assistant',
       content: '',
       pending: true,
-      status: '小黄鸭在想…',
+      status: isEnglish ? 'Ducky is thinking…' : '小黄鸭在想…',
     };
     const nextMessages = [...messages, userMessage, assistantMessage];
     setMessages(nextMessages);
@@ -335,7 +335,7 @@ export function AiPage() {
       const msg = error instanceof Error ? error.message : '发送失败';
       setMessages((prev) => prev.map((message) => (
         message.id === assistantMessage.id
-          ? { ...message, content: msg, pending: false, error: true }
+          ? { ...message, content: msg, pending: false, error: true, status: undefined }
           : message
       )));
       activeAssistantIdRef.current = null;

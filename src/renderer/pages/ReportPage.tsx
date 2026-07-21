@@ -42,15 +42,22 @@ function outputName(template: string, reportType: ReportType, language: UiLangua
 }
 
 const DEFAULT_REPORT_PROMPTS_ZH: Record<string, string> = {
-  [promptKey('工作日报', '日报')]: `请以清楚、简洁、可直接编辑提交的工作日报形式输出。
+  [promptKey('工作日报', '日报')]: `请写一份让不了解上下文的人也能一眼看懂的工作日报，可直接编辑提交。
 
-建议结构：
-## 今日工作
-按主题归纳可确认的工作内容。
-## 可写入日报的进展
-提炼材料明确支持的进展，不夸大完成度。
-## 待确认
-列出需要我补充或确认的内容；没有则写“无”。`,
+写法：
+- 按 2–5 个实际工作主题归纳；每个主题用 1–2 条完整句子说明“做了什么”和“当前进展”。
+- 只保留对日报有用的信息：项目、具体动作、明确结果或当前阻塞。相似的截图记录合并，不按截图或时间逐条复述。
+- “查看、讨论、规划、正在运行、出现报错”只能写成对应的过程或状态，不能改写成已完成。
+- 不要出现 AI 评审分数、改动行数、工具/窗口名称、截图描述、原始英文短语、括号里的观察备注或 etc.，也不要猜测这些活动之间的关系。
+- 不使用空泛的“推进、优化、赋能、闭环、协同”等词；用具体动作替代。没有足够信息就简短写“正在确认中”。
+
+固定结构：
+## 今日完成或推进
+- 主题：做了什么；结果或当前状态。
+## 进行中或待确认
+- 只列确实尚未完成、被阻塞或需要补充的信息；没有则写“无”。
+
+不要额外写摘要、素材说明、数据统计或重复的“可写入日报”段落。`,
   [promptKey('工作日报', '周报')]: `请以清楚、简洁、可直接编辑提交的工作周报形式输出。
 
 建议结构：
@@ -99,15 +106,22 @@ const DEFAULT_REPORT_PROMPTS_ZH: Record<string, string> = {
 };
 
 const DEFAULT_REPORT_PROMPTS_EN: Record<string, string> = {
-  [promptKey('工作日报', '日报')]: `Write a clear, concise daily work report that can be edited and submitted directly.
+  [promptKey('工作日报', '日报')]: `Write a daily work report that someone without the original context can understand at a glance and edit for submission.
 
-Suggested structure:
-## Today's Work
-Group confirmed work by topic.
-## Reportable Progress
-Summarize progress clearly supported by the material without overstating completion.
-## Needs Confirmation
-List anything I need to add or confirm. Write "None" if there is nothing.`,
+Writing rules:
+- Group the work into 2–5 real topics. For each topic, use one or two complete sentences that say what was done and its current status.
+- Keep only report-worthy details: project, concrete action, confirmed result, or current blocker. Merge repeated screenshots; do not retell them one by one or in time order.
+- Treat “viewing,” “discussing,” “planning,” “running,” and errors as process or status, never as completed work.
+- Do not include AI review scores, line-change counts, tool or window names, screenshot descriptions, raw Chinese or English fragments, parenthetical observation notes, or “etc.” Do not guess relationships between activities.
+- Avoid vague business language such as “drive,” “optimize,” “enable,” or “synergize.” Use concrete actions instead. If the evidence is insufficient, say “In progress; details to confirm.”
+
+Use exactly this structure:
+## Completed or Advanced Today
+- Topic: what was done; result or current status.
+## In Progress or Needs Confirmation
+- Include only genuinely unfinished, blocked, or missing details. Write "None" if there are none.
+
+Do not add an executive summary, source/material notes, statistics, or a repeated “reportable progress” section.`,
   [promptKey('工作日报', '周报')]: `Write a clear, concise weekly work report that can be edited and submitted directly.
 
 Suggested structure:

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { addTemporalChatContext, buildChatCompletionPayload, buildChatSystemPrompt, extractRealtimeMemoryEvent, MEMORY_CHAT_TOOLS, requestMemoryChatTurn, requestMemoryToolCalls, selectRecentChatTurns, streamChatCompletion } from '../src/main/ai';
+import { addTemporalChatContext, buildChatCompletionPayload, buildChatSystemPrompt, compactChatMemory, describeScreenQuestion, extractRealtimeMemoryEvent, MEMORY_CHAT_TOOLS, requestMemoryChatTurn, requestMemoryToolCalls, selectRecentChatTurns, streamChatCompletion } from '../src/main/ai';
 
 describe('buildChatSystemPrompt()', () => {
   it('defines the desk pet as a relaxed coworker with clear boundaries', () => {
@@ -20,6 +20,17 @@ describe('buildChatSystemPrompt()', () => {
     expect(prompt).toContain('不要编造');
     expect(prompt).not.toContain('**');
     expect(prompt).not.toContain('时间线缩放逻辑');
+  });
+
+  it('uses a complete English persona and English time/context instructions in English mode', () => {
+    const prompt = buildChatSystemPrompt('Three screenshot summaries are available.', 'en-US');
+
+    expect(prompt).toContain('You are Ducky');
+    expect(prompt).toContain('not a conventional AI assistant');
+    expect(prompt).toContain('Current time:');
+    expect(prompt).toContain('Here is Xiabanya\'s currently available context for today:');
+    expect(prompt).toContain('Three screenshot summaries are available.');
+    expect(prompt).not.toContain('回复 in natural English only');
   });
 });
 
@@ -160,6 +171,31 @@ describe('memory chat tools', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('uses English instructions for a tool-enabled chat turn in English mode', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"reply":"I remember it.","used_event_ids":[],"used_element_ids":[]}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await requestMemoryChatTurn(
+        'sk-test',
+        'deepseek-ai/DeepSeek-V4-Flash',
+        [{ role: 'user', content: 'Do you remember the first PRD?' }],
+        'Date: 2026-07-13',
+        undefined,
+        [],
+        false,
+        'en-US',
+      );
+      const request = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(request.messages[0].content).toContain('You are in a real chat with the user.');
+      expect(request.messages[0].content).toContain('only one JSON object');
+      expect(request.messages[0].content).toContain('You are Ducky');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('extractRealtimeMemoryEvent()', () => {
@@ -190,6 +226,56 @@ describe('extractRealtimeMemoryEvent()', () => {
     }), { status: 200 })));
     try {
       await expect(extractRealtimeMemoryEvent('sk-test', 'light-model', '花生过敏怎么办？')).resolves.toEqual({ event: null });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('uses the English extraction prompt when English mode is active', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"event":null}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await extractRealtimeMemoryEvent('sk-test', 'light-model', 'I am allergic to peanuts.', undefined, 'en-US');
+      const request = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(request.messages[0].content).toContain('real-time high-value memory extractor');
+      expect(request.messages[1].content).toContain("User's original words:");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('English non-chat AI prompts', () => {
+  it('compacts new memory in English while preserving canonical system element identifiers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"conversation_summary":"Small talk only.","events":[],"elements":[]}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await compactChatMemory('sk-test', 'light-model', {
+        previousSummary: '', messages: [], retrievedMemoryIndex: '',
+      }, undefined, 'en-US');
+      const request = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(request.messages[0].content).toContain("All newly generated natural-language fields must be in English.");
+      expect(request.messages[0].content).toContain('canonical internal names "用户" and "下班鸭"');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('uses an English-only screenshot observation prompt in English mode', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'A code editor is visible.' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await describeScreenQuestion('sk-test', 'vision-model', { fullImageBase64: 'abc' }, undefined, undefined, 'en-US');
+      const request = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(request.messages[0].content).toContain('You are a screenshot observer.');
+      expect(request.messages[0].content).toContain('plain English observation text');
+      expect(request.messages[1].content.at(-1).text).toBe('Provide a screenshot observation.');
     } finally {
       vi.unstubAllGlobals();
     }

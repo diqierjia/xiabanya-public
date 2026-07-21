@@ -209,6 +209,28 @@ function getChatModel(db: DatabaseService): string {
   return db.getSetting('chat_model', 'deepseek-ai/DeepSeek-V4-Flash');
 }
 
+function getAppLanguage(db: DatabaseService): 'zh-CN' | 'en-US' {
+  return db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN';
+}
+
+type ChatStatusKey = 'thinking' | 'searchingRecords' | 'searchingMemory' | 'expandingMemory' | 'organizingMemory' | 'recordsFound' | 'memoryFound' | 'organizingReply' | 'replying';
+
+function chatStatus(language: 'zh-CN' | 'en-US', key: ChatStatusKey): string {
+  const english = language === 'en-US';
+  const messages: Record<ChatStatusKey, [string, string]> = {
+    thinking: ['小黄鸭在想…', 'Ducky is thinking…'],
+    searchingRecords: ['正在翻翻之前的记录…', 'Looking through earlier records…'],
+    searchingMemory: ['正在翻翻以前的记忆…', 'Looking through earlier memories…'],
+    expandingMemory: ['正在看看那段回忆的细节…', 'Checking the details of that memory…'],
+    organizingMemory: ['正在整理刚才想起来的内容…', 'Organizing what I just found…'],
+    recordsFound: ['找到一些以前的记录，继续想想…', 'I found some earlier records. Thinking it through…'],
+    memoryFound: ['找到一些相关回忆，继续想想…', 'I found some related memories. Thinking it through…'],
+    organizingReply: ['我想好了，正在组织一下…', 'I have it. Let me put it together…'],
+    replying: ['想好了，正在回复…', 'I have it. Replying now…'],
+  };
+  return messages[key][english ? 1 : 0];
+}
+
 function formatIdleForChat(period: IdlePeriod): string {
   const start = formatUtcStorageTime(period.start_at);
   const end = period.end_at ? formatUtcStorageTime(period.end_at) : '当前';
@@ -676,7 +698,7 @@ function tryAddCompletedChatTurn(
 
 function scheduleChatCompaction(
   db: DatabaseService,
-  params: { apiKey: string; model: string; apiBaseUrl: string }
+  params: { apiKey: string; model: string; apiBaseUrl: string; language: 'zh-CN' | 'en-US' }
 ): void {
   const batch = db.claimNextChatCompactionBatch();
   if (!batch) return;
@@ -702,7 +724,7 @@ function scheduleChatCompaction(
       retrievedMemoryIndex: toolPass.residentIndex,
       retrievedDetails: toolPass.retrievedDetails,
       realtimeExtractedMessageIds: db.listRealtimeExtractedMessageIds(batch.messages.map((message) => message.id)),
-    }, params.apiBaseUrl);
+    }, params.apiBaseUrl, params.language);
     if (settled) return;
     db.completeChatCompaction(batch.id, {
       conversationSummary: result.conversation_summary,
@@ -732,7 +754,7 @@ function scheduleChatCompaction(
 
 function scheduleChatCompactionRetry(
   db: DatabaseService,
-  params: { apiKey: string; model: string; apiBaseUrl: string },
+  params: { apiKey: string; model: string; apiBaseUrl: string; language: 'zh-CN' | 'en-US' },
   retryAt: string,
 ): void {
   if (chatCompactionRetryTimer) clearTimeout(chatCompactionRetryTimer);
@@ -751,6 +773,7 @@ function resumeChatCompactionQueue(db: DatabaseService): void {
     apiKey,
     model: getChatModel(db),
     apiBaseUrl: getApiBaseUrl(db),
+    language: getAppLanguage(db),
   });
 }
 
@@ -768,7 +791,7 @@ function scheduleRealtimeMemoryExtraction(
     db.failRealtimeMemoryExtraction(persisted.userMessageId);
     return;
   }
-  void extractRealtimeMemoryEvent(apiKey, getChatModel(db), userMessage, getApiBaseUrl(db))
+  void extractRealtimeMemoryEvent(apiKey, getChatModel(db), userMessage, getApiBaseUrl(db), getAppLanguage(db))
     .then(({ event }) => {
       const eventIds = event
         ? db.createMemoryEvents([{ ...event, criticality, confidence: 0.95 }], [persisted.userMessageId!], persisted.turn, userMessage)
@@ -905,6 +928,7 @@ async function runMemoryToolPass(
     messages: ChatMessage[];
     sourceMessages: ChatHistoryMessage[];
     memoryContext: { text: string; retrievedEventIds: string[]; retrievedElementIds: string[] };
+    language: 'zh-CN' | 'en-US';
     onStatus?: (status: string) => void;
   }
 ): Promise<MemoryToolPassResult> {
@@ -927,7 +951,8 @@ async function runMemoryToolPass(
       params.memoryContext.text,
       params.apiBaseUrl,
       toolTranscript,
-      allowTools
+      allowTools,
+      params.language,
     );
     if (!turn.supported) {
       return {
@@ -947,19 +972,19 @@ async function runMemoryToolPass(
         usedEventIds: turn.usedEventIds.filter((id) => accessibleEventIds.has(id)),
         usedElementIds: turn.usedElementIds.filter((id) => accessibleElementIds.has(id)),
         proposals,
-        reply: turn.content.trim() || '嗯……我刚刚没想出合适的话。你再问我一次？',
+        reply: turn.content.trim() || (params.language === 'en-US' ? 'Hmm… I did not find a good answer just now. Could you ask me again?' : '嗯……我刚刚没想出合适的话。你再问我一次？'),
         calls: debugCalls,
         fallbackContext: fallbackContextParts.join('\n\n'),
       };
     }
 
     params.onStatus?.(turn.calls.some((call) => call.name === 'search_vision_results' || call.name === 'search_records')
-      ? '正在翻翻之前的记录…'
+      ? chatStatus(params.language, 'searchingRecords')
       : turn.calls.some((call) => call.name === 'search_events' || call.name === 'search_elements')
-        ? '正在翻翻以前的记忆…'
-      : turn.calls.some((call) => call.name === 'expand_event' || call.name === 'expand_element')
-        ? '正在看看那段回忆的细节…'
-        : '正在整理刚才想起来的内容…');
+        ? chatStatus(params.language, 'searchingMemory')
+        : turn.calls.some((call) => call.name === 'expand_event' || call.name === 'expand_element')
+        ? chatStatus(params.language, 'expandingMemory')
+        : chatStatus(params.language, 'organizingMemory'));
     const calls = turn.calls.slice(0, 6);
     const outputs: Array<{ call: MemoryToolCall; output: Record<string, unknown> }> = [];
     for (const call of calls) {
@@ -974,10 +999,10 @@ async function runMemoryToolPass(
     });
     outputs.forEach(({ call, output }) => toolTranscript.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(output) }));
     params.onStatus?.(turn.calls.some((call) => call.name === 'search_vision_results' || call.name === 'search_records')
-      ? '找到一些以前的记录，继续想想…'
+      ? chatStatus(params.language, 'recordsFound')
       : turn.calls.some((call) => call.name === 'search_events' || call.name === 'search_elements')
-        ? '找到一些相关回忆，继续想想…'
-      : '我想好了，正在组织一下…');
+        ? chatStatus(params.language, 'memoryFound')
+        : chatStatus(params.language, 'organizingReply'));
   }
 }
 
@@ -1111,7 +1136,7 @@ async function runChatCompactionToolPass(
   const context = `此前会话摘要：\n${params.batch.previousSummary || '无'}\n\n本次待整理原文：\n${params.batch.messages.map((message) => `[${message.id}] ${message.role}: ${message.content}`).join('\n')}\n\n默认长期记忆 L0（事件卡与元素卡共用前 20 条）：\n${residentIndex || '无'}`;
 
   for (let round = 0; round < 3; round += 1) {
-    const planning = await requestChatCompactionToolCalls(params.apiKey, params.model, context, params.apiBaseUrl, toolTranscript);
+    const planning = await requestChatCompactionToolCalls(params.apiKey, params.model, context, params.apiBaseUrl, toolTranscript, getAppLanguage(db));
     if (!planning.supported || planning.calls.length === 0) break;
     const stepCalls = planning.calls.slice(0, 6);
     const outputs: Array<{ call: MemoryToolCall; output: Record<string, unknown> }> = [];
@@ -1201,6 +1226,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       { fullImageBase64: screenshot.context.toString('base64') },
       abortController.signal,
       getApiBaseUrl(db),
+      getAppLanguage(db),
     )
       .then((content): ScreenQuestionObservation => ({ ok: true, content, completedAt: Date.now() }))
       .catch((error): ScreenQuestionObservation => ({ ok: false, error, completedAt: Date.now() }));
@@ -1250,6 +1276,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       { focusImageBase64: cropMatch[1] },
       abortController.signal,
       getApiBaseUrl(db),
+      getAppLanguage(db),
     )
       .then((content): ScreenQuestionObservation => ({ ok: true, content, completedAt: Date.now() }))
       .catch((error): ScreenQuestionObservation => ({ ok: false, error, completedAt: Date.now() }));
@@ -1682,6 +1709,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
 
     const chatModel = getChatModel(db);
     const apiBaseUrl = getApiBaseUrl(db);
+    const chatLanguage = getAppLanguage(db);
     const memoryContext = buildDeskPetChatContext(db);
     const modelMessages = interleaveChatTimeline(historicalMessages, memoryContext.timelineEntries);
     // 以真正开始模型工作为起点；隐藏的记忆工具调用也属于用户实际等待的时间。
@@ -1697,17 +1725,18 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
     const sendChatStatus = (status: string) => {
       sendToChatSender(sender, IPC_CHANNELS.CHAT_STREAM_DELTA, { streamId, type: 'status', delta: status });
     };
-    sendChatStatus('小黄鸭在想…');
+    sendChatStatus(chatStatus(chatLanguage, 'thinking'));
     let memoryToolPass: MemoryToolPassResult = { toolMode: false, usedEventIds: [], usedElementIds: [], proposals: [], reply: null, calls: [], fallbackContext: '', fallbackReason: '工具聊天尚未完成，本轮回退为普通聊天。' };
     try {
       memoryToolPass = await runMemoryToolPass(db, {
         apiKey,
         model: chatModel,
         apiBaseUrl,
-        messages: modelMessages,
-        sourceMessages: historicalMessages,
-        memoryContext,
-        onStatus: sendChatStatus,
+      messages: modelMessages,
+      sourceMessages: historicalMessages,
+      memoryContext,
+      language: chatLanguage,
+      onStatus: sendChatStatus,
       });
     } catch (error) {
       console.warn('[MemoryTools] Tool pass unavailable:', error);
@@ -1717,7 +1746,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
     const completeReply = memoryToolPass.reply !== null
       ? Promise.resolve().then(() => {
         assistantContent = memoryToolPass.reply || '';
-        sendChatStatus('想好了，正在回复…');
+        sendChatStatus(chatStatus(chatLanguage, 'replying'));
         if (assistantContent) {
           markFirstResponse();
           sendDeskPetChatMirrorEvent(sender, { streamId, type: 'delta', content: assistantContent });
@@ -1739,12 +1768,12 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
             return;
           }
           // 普通回退流也不向用户暴露模型内部推理，只保留一个自然的等待状态。
-          sendChatStatus('小黄鸭在想…');
+          sendChatStatus(chatStatus(chatLanguage, 'thinking'));
         },
         abortController.signal,
         apiBaseUrl,
         {},
-        db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN'
+        chatLanguage,
       );
 
     completeReply
@@ -1786,6 +1815,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
             apiKey,
             model: chatModel,
             apiBaseUrl,
+            language: getAppLanguage(db),
           });
         }
         sendDeskPetChatMirrorEvent(sender, { streamId, type: 'done', messageId: persisted?.assistantMessageId });
