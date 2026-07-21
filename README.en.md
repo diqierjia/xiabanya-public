@@ -40,6 +40,8 @@ Ducky is for individual developers, researchers, and others whose work happens m
 ## 🧭 What it does
 
 - **Capture** — When you choose AI observation, use multimodal understanding of the screen, foreground app, and time context to create evidence-backed work observations. Local activity and idle data provide context; they are not a blind activity log.
+  - **Merged time periods** — Consecutive activities of the same type are merged into one segment, making the timeline easier to scan.
+  - **Idle detection** — After a period without keyboard or mouse input, Ducky treats the computer as idle and pauses multimodal recognition.
 - **Review** — Use Today, AI observation records, and Timeline to inspect work segments, confidence, and original evidence.
 - **Remember** — Chat with Ducky using your current workday, recent conversation, and relevant long-term memory cards. You can inspect, edit, pin, or forget those cards yourself.
 - **Ask Ducky about the screen** — Start from the desk pet, select the part of the current screen that matters, ask a question, and receive an answer with both the selection and the surrounding screen context.
