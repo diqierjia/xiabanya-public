@@ -3,6 +3,8 @@ import { X } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants';
 import type { RecordUpsertDTO } from '../lib/types';
 import { formatDateTimeLocalInput, formatUtcStorageDateTime } from '../../shared/time';
+import { normalizeManagedCategories } from '../../shared/types';
+import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 
 interface RecordDialogProps {
   open: boolean;
@@ -11,6 +13,7 @@ interface RecordDialogProps {
 }
 
 export function RecordDialog({ open, onClose, onSave }: RecordDialogProps) {
+  const api = useXiabanyaApi();
   const now = new Date();
   const defaultStart = formatDateTimeLocalInput(new Date(now.getTime() - 30 * 60000));
   const defaultEnd = formatDateTimeLocalInput(now);
@@ -21,6 +24,7 @@ export function RecordDialog({ open, onClose, onSave }: RecordDialogProps) {
   const [startAt, setStartAt] = useState(defaultStart);
   const [endAt, setEndAt] = useState(defaultEnd);
   const [notes, setNotes] = useState('');
+  const [categories, setCategories] = useState<string[]>([...CATEGORIES]);
 
   useEffect(() => {
     if (open) {
@@ -35,6 +39,17 @@ export function RecordDialog({ open, onClose, onSave }: RecordDialogProps) {
       setNotes('');
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    api.settings.get('managed_categories', '[]')
+      .then((raw) => {
+        const next = normalizeManagedCategories(JSON.parse(raw || '[]'));
+        setCategories(next);
+        setCategory((current) => next.includes(current) ? current : next[0]);
+      })
+      .catch(() => setCategories([...CATEGORIES]));
+  }, [api, open]);
 
   if (!open) return null;
 
@@ -84,7 +99,7 @@ export function RecordDialog({ open, onClose, onSave }: RecordDialogProps) {
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               >
-                {CATEGORIES.map((c) => (
+                {categories.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>

@@ -10,13 +10,8 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 import { formatLocalDate } from '../../shared/time';
-import { DEFAULT_API_BASE_URL } from '../../shared/types';
-
-interface UserCategory {
-  name: string;
-  color: string;
-  keywords: string[];
-}
+import { CATEGORIES, DEFAULT_API_BASE_URL, normalizeManagedCategories } from '../../shared/types';
+import { type UiLanguage, useTranslation } from '../i18n';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -51,6 +46,7 @@ function normalizeScreenshotInterval(value: number): number {
 export function SettingsPage() {
   const api = useXiabanyaApi();
   const { settings, loaded, fetchSettings, setSetting } = useSettingsStore();
+  const { language, isEnglish, t, categoryLabel } = useTranslation();
   const { setTrackerRunning, setVisionAutoRunning } = useAppStore();
   const [showClear, setShowClear] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -66,13 +62,15 @@ export function SettingsPage() {
   const [autoVisionToggle, setAutoVisionToggle] = useState(false);
   const [deskPetEnabled, setDeskPetEnabled] = useState(false);
 
-  // Custom categories
-  const [customCategories, setCustomCategories] = useState<UserCategory[]>([]);
+  // Category management
+  const [managedCategories, setManagedCategories] = useState<string[]>([]);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<UserCategory | null>(null);
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [newCatName, setNewCatName] = useState('');
-  const [newCatColor, setNewCatColor] = useState('#08a64f');
-  const [newCatKeywords, setNewCatKeywords] = useState('');
+  const [showExport, setShowExport] = useState(false);
+  const [exportMode, setExportMode] = useState<'today' | 'range' | 'all'>('today');
+  const [exportStart, setExportStart] = useState(formatLocalDate());
+  const [exportEnd, setExportEnd] = useState(formatLocalDate());
   const skipApiKeyAutosaveRef = useRef(true);
   const skipCustomApiBaseUrlAutosaveRef = useRef(true);
   const skipVisionModelAutosaveRef = useRef(true);
@@ -83,7 +81,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     fetchSettings();
-    fetchCustomCategories();
+    fetchManagedCategories();
   }, []);
 
   useEffect(() => {
@@ -143,9 +141,9 @@ export function SettingsPage() {
     } catch (error) {
       console.error(`[Settings] Failed to save ${key}:`, error);
       setSaveStatus('error');
-      toast.error('设置保存失败');
+      toast.error(t('settingsSaveFailed'));
     }
-  }, [markSaved, setSetting]);
+  }, [markSaved, setSetting, t]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -324,19 +322,24 @@ export function SettingsPage() {
     persistSetting('desk_pet_enabled', enabled);
   };
 
-  const fetchCustomCategories = async () => {
+  const fetchManagedCategories = async () => {
     try {
-      const raw = await api.settings.get('custom_categories', '[]');
-      setCustomCategories(JSON.parse(raw));
+      const managedRaw = await api.settings.get('managed_categories', '');
+      const legacyRaw = managedRaw || await api.settings.get('custom_categories', '[]');
+      const categories = normalizeManagedCategories(managedRaw ? JSON.parse(legacyRaw) : [...CATEGORIES, ...JSON.parse(legacyRaw || '[]')]);
+      setManagedCategories(categories);
+      if (!managedRaw) {
+        await api.categories.save({ categories });
+      }
     } catch {
-      // No custom categories yet
+      setManagedCategories(normalizeManagedCategories([]));
     }
   };
 
-  const saveCustomCategories = async (cats: UserCategory[]) => {
+  const saveManagedCategories = async (categories: string[], renames: Array<{ from: string; to: string }> = []) => {
     try {
-      await api.settings.set('custom_categories', JSON.stringify(cats));
-      setCustomCategories(cats);
+      const saved = await api.categories.save({ categories, renames });
+      setManagedCategories(saved);
       toast.success('分类已保存');
     } catch {
       toast.error('保存分类失败');
@@ -344,36 +347,35 @@ export function SettingsPage() {
   };
 
   const addCategory = () => {
-    if (!newCatName.trim()) return;
-    const cat: UserCategory = {
-      name: newCatName.trim(),
-      color: newCatColor,
-      keywords: newCatKeywords.split(',').map((k) => k.trim()).filter(Boolean),
-    };
-    saveCustomCategories([...customCategories, cat]);
+    const name = newCatName.trim();
+    if (!name) return;
+    if (managedCategories.includes(name)) {
+      toast.error('已有同名分类');
+      return;
+    }
+    saveManagedCategories([...managedCategories, name]);
     resetCategoryForm();
   };
 
   const updateCategory = () => {
-    if (!editingCategory || !newCatName.trim()) return;
-    const updated = customCategories.map((c) =>
-      c === editingCategory
-        ? { name: newCatName.trim(), color: newCatColor, keywords: newCatKeywords.split(',').map((k) => k.trim()).filter(Boolean) }
-        : c,
-    );
-    saveCustomCategories(updated);
+    const name = newCatName.trim();
+    if (!editingCategory || !name) return;
+    if (editingCategory === '其他' && name !== '其他') {
+      toast.error('“其他”是兜底分类，不能改名');
+      return;
+    }
+    if (name !== editingCategory && managedCategories.includes(name)) {
+      toast.error('已有同名分类');
+      return;
+    }
+    const updated = managedCategories.map((category) => category === editingCategory ? name : category);
+    saveManagedCategories(updated, name === editingCategory ? [] : [{ from: editingCategory, to: name }]);
     resetCategoryForm();
   };
 
-  const deleteCategory = (cat: UserCategory) => {
-    saveCustomCategories(customCategories.filter((c) => c !== cat));
-  };
-
-  const startEdit = (cat: UserCategory) => {
-    setEditingCategory(cat);
-    setNewCatName(cat.name);
-    setNewCatColor(cat.color);
-    setNewCatKeywords(cat.keywords.join(', '));
+  const startEdit = (category: string) => {
+    setEditingCategory(category);
+    setNewCatName(category);
     setShowCategoryForm(true);
   };
 
@@ -381,18 +383,29 @@ export function SettingsPage() {
     setShowCategoryForm(false);
     setEditingCategory(null);
     setNewCatName('');
-    setNewCatColor('#08a64f');
-    setNewCatKeywords('');
   };
 
   const handleExport = async () => {
     try {
-      const data = await api.exportJson();
+      const today = formatLocalDate();
+      const range = exportMode === 'today'
+        ? { start: today, end: today }
+        : exportMode === 'range'
+          ? { start: exportStart, end: exportEnd }
+          : undefined;
+      if (range && (!range.start || !range.end || range.start > range.end)) {
+        toast.error('请选择有效的导出日期范围');
+        return;
+      }
+      const data = await api.exportJson(range);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `xiabanya-export-${formatLocalDate()}.json`;
+      const suffix = data.range ? `${data.range.start}_to_${data.range.end}` : 'all';
+      a.download = `xiabanya-export-${suffix}.json`;
       a.click();
+      URL.revokeObjectURL(a.href);
+      setShowExport(false);
       toast.success('数据已导出');
     } catch {
       toast.error('导出失败');
@@ -451,11 +464,11 @@ export function SettingsPage() {
           <span>{statusText}</span>
         </div>
 
-        {/* API Config */}
-        <Card className="p-5">
+      {/* API Config */}
+      <Card className="p-5">
           <Card.Header>
             <div className="flex items-center justify-between gap-4">
-              <Card.Title>API 配置</Card.Title>
+              <Card.Title>{t('apiSettings')}</Card.Title>
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
                 <input
                   type="checkbox"
@@ -463,7 +476,7 @@ export function SettingsPage() {
                   onChange={(e) => updateCustomApiEnabled(e.target.checked)}
                   className="rounded"
                 />
-                <span>自定义 API</span>
+                <span>{t('customApi')}</span>
               </label>
             </div>
           </Card.Header>
@@ -477,65 +490,65 @@ export function SettingsPage() {
           />
           {customApiEnabled && (
             <Input
-              label="自定义 API 地址"
+              label={isEnglish ? 'Custom API URL' : '自定义 API 地址'}
               value={customApiBaseUrl}
               onChange={(e) => setCustomApiBaseUrl(e.target.value)}
               placeholder={DEFAULT_API_BASE_URL}
-              hint="兼容 OpenAI /chat/completions 的 Base URL"
+              hint={isEnglish ? 'An OpenAI-compatible /chat/completions base URL' : '兼容 OpenAI /chat/completions 的 Base URL'}
             />
           )}
           {customApiEnabled ? (
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="视觉模型"
+                label={t('visionModel')}
                 value={visionModel}
                 onChange={(e) => setVisionModel(e.target.value)}
                 placeholder={DEFAULT_VISION}
-                hint="用于截图识别，按服务商文档填写模型名"
+                hint={isEnglish ? 'Used for screenshot recognition; enter the provider model name.' : '用于截图识别，按服务商文档填写模型名'}
               />
               <Input
-                label="报告模型"
+                label={t('reportModel')}
                 value={reportModel}
                 onChange={(e) => setReportModel(e.target.value)}
                 placeholder={DEFAULT_REPORT}
-                hint="用于生成日报和回顾"
+                hint={isEnglish ? 'Used to create reports and reviews.' : '用于生成日报和回顾'}
               />
               <Input
-                label="桌宠对话模型"
+                label={t('chatModel')}
                 value={chatModel}
                 onChange={(e) => setChatModel(e.target.value)}
                 placeholder={DEFAULT_CHAT}
-                hint="用于桌宠聊天"
+                hint={isEnglish ? 'Used for desk-pet chat.' : '用于桌宠聊天'}
               />
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
               <Select
-                label="视觉模型"
+                label={t('visionModel')}
                 value={visionModel}
                 onChange={(e) => updateVisionModel(e.target.value)}
                 options={[
-                  { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen3-VL 8B (快速)' },
-                  { value: 'Qwen/Qwen3-VL-32B-Instruct', label: 'Qwen3-VL 32B (均衡)' },
-                  { value: 'Qwen/Qwen2.5-VL-72B-Instruct', label: 'Qwen2.5-VL 72B (精准)' },
+                  { value: 'Qwen/Qwen3-VL-8B-Instruct', label: isEnglish ? 'Qwen3-VL 8B (Fast)' : 'Qwen3-VL 8B (快速)' },
+                  { value: 'Qwen/Qwen3-VL-32B-Instruct', label: isEnglish ? 'Qwen3-VL 32B (Balanced)' : 'Qwen3-VL 32B (均衡)' },
+                  { value: 'Qwen/Qwen2.5-VL-72B-Instruct', label: isEnglish ? 'Qwen2.5-VL 72B (Accurate)' : 'Qwen2.5-VL 72B (精准)' },
                 ]}
               />
               <Select
-                label="报告模型"
+                label={t('reportModel')}
                 value={reportModel}
                 onChange={(e) => updateReportModel(e.target.value)}
                 options={[
-                  { value: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek-V4-Flash (推荐)' },
-                  { value: 'Qwen/Qwen3.5-9B', label: 'Qwen3.5-9B (省钱)' },
+                  { value: 'deepseek-ai/DeepSeek-V4-Flash', label: isEnglish ? 'DeepSeek-V4-Flash (Recommended)' : 'DeepSeek-V4-Flash (推荐)' },
+                  { value: 'Qwen/Qwen3.5-9B', label: isEnglish ? 'Qwen3.5-9B (Economical)' : 'Qwen/Qwen3.5-9B (省钱)' },
                 ]}
               />
               <Select
-                label="桌宠对话模型"
+                label={t('chatModel')}
                 value={chatModel}
                 onChange={(e) => updateChatModel(e.target.value)}
                 options={[
-                  { value: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek-V4-Flash (推荐)' },
-                  { value: 'deepseek-ai/DeepSeek-V4-Pro', label: 'DeepSeek-V4-Pro (更强)' },
+                  { value: 'deepseek-ai/DeepSeek-V4-Flash', label: isEnglish ? 'DeepSeek-V4-Flash (Recommended)' : 'DeepSeek-V4-Flash (推荐)' },
+                  { value: 'deepseek-ai/DeepSeek-V4-Pro', label: isEnglish ? 'DeepSeek-V4-Pro (More capable)' : 'DeepSeek-V4-Pro (更强)' },
                 ]}
               />
             </div>
@@ -543,19 +556,41 @@ export function SettingsPage() {
         </div>
       </Card>
 
+      {/* Language */}
+      <Card className="p-5">
+        <Card.Header>
+          <Card.Title>{t('language')}</Card.Title>
+        </Card.Header>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">{t('languageHint')}</p>
+          <Select
+            label={t('language')}
+            value={language}
+            onChange={(event) => {
+              const nextLanguage = event.target.value as UiLanguage;
+              void persistSetting('language', nextLanguage, { successMessage: t('languageSaved') });
+            }}
+            options={[
+              { value: 'zh-CN', label: t('chinese') },
+              { value: 'en-US', label: t('english') },
+            ]}
+          />
+        </div>
+      </Card>
+
       {/* Screenshot */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>截图设置</Card.Title>
+          <Card.Title>{t('screenshotSettings')}</Card.Title>
         </Card.Header>
         <div className="space-y-3">
           <Input
-            label="截图间隔 (分钟)"
+            label={t('screenshotInterval')}
             type="number"
             value={String(screenshotInterval)}
             onChange={(e) => setScreenshotInterval(Number(e.target.value))}
             onBlur={(e) => updateScreenshotInterval(Number(e.target.value))}
-            hint="1-60 分钟"
+            hint={isEnglish ? '1–60 minutes' : '1-60 分钟'}
             className="w-32"
           />
           <label className="flex items-center gap-3 cursor-pointer">
@@ -565,7 +600,7 @@ export function SettingsPage() {
               onChange={(e) => updateKeepScreenshots(e.target.checked)}
               className="rounded"
             />
-            <span className="text-sm text-gray-600">保留截图文件</span>
+            <span className="text-sm text-gray-600">{t('keepScreenshots')}</span>
           </label>
         </div>
       </Card>
@@ -573,7 +608,7 @@ export function SettingsPage() {
       {/* Auto */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>自动功能</Card.Title>
+          <Card.Title>{t('automation')}</Card.Title>
         </Card.Header>
         <div className="space-y-3">
           <label className="flex items-center gap-3 cursor-pointer">
@@ -583,7 +618,7 @@ export function SettingsPage() {
               onChange={(e) => updateAutoStartTracker(e.target.checked)}
               className="rounded"
             />
-            <span className="text-sm text-gray-600">启动时自动开始追踪</span>
+            <span className="text-sm text-gray-600">{t('autoStartTracking')}<strong>{isEnglish ? ' (recommended)' : '（建议勾选）'}</strong></span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -592,7 +627,7 @@ export function SettingsPage() {
               onChange={(e) => updateAutoVisionToggle(e.target.checked)}
               className="rounded"
             />
-            <span className="text-sm text-gray-600">自动开启截图识别</span>
+            <span className="text-sm text-gray-600">{t('autoVision')}<strong>{isEnglish ? ' (recommended)' : '（建议勾选）'}</strong></span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -601,47 +636,33 @@ export function SettingsPage() {
               onChange={(e) => updateDeskPetEnabled(e.target.checked)}
               className="rounded"
             />
-            <span className="text-sm text-gray-600">启用桌宠</span>
+            <span className="text-sm text-gray-600">{t('enableDeskPet')}</span>
           </label>
         </div>
       </Card>
 
-      {/* Custom Categories */}
+      {/* Category Management */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>自定义分类</Card.Title>
+          <Card.Title>{t('categories')}</Card.Title>
         </Card.Header>
         <div className="space-y-3">
-          {customCategories.length > 0 && (
+          <p className="text-sm text-gray-500">{isEnglish ? 'These categories are shared by manual records and screenshot recognition. Renaming one updates existing records.' : '这里的分类会同时用于手动记录和截图识别。改名会同步更新已有记录。'}</p>
+          {managedCategories.length > 0 && (
             <div className="space-y-2">
-              {customCategories.map((cat) => (
+              {managedCategories.map((category) => (
                 <div
-                  key={cat.name}
+                  key={category}
                   className="flex items-center gap-3 p-2 rounded-lg border border-gray-100"
                 >
-                  <div
-                    className="w-4 h-4 rounded-full shrink-0"
-                    style={{ backgroundColor: cat.color }}
-                  />
-                  <span className="text-sm text-gray-700 flex-1">{cat.name}</span>
-                  <div className="flex gap-1">
-                    {cat.keywords.slice(0, 3).map((kw) => (
-                      <span key={kw} className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
+                  <span className="text-sm text-gray-700 flex-1">{categoryLabel(category)}</span>
+                  {category === '其他' && <span className="text-xs text-gray-400">{isEnglish ? 'Fallback category' : '兜底分类'}</span>}
                   <button
-                    onClick={() => startEdit(cat)}
+                    onClick={() => startEdit(category)}
                     className="p-1 hover:bg-gray-100 rounded"
+                    aria-label={`${t('edit')} ${categoryLabel(category)}`}
                   >
                     <Pencil size={14} className="text-gray-400" />
-                  </button>
-                  <button
-                    onClick={() => deleteCategory(cat)}
-                    className="p-1 hover:bg-red-50 rounded"
-                  >
-                    <Trash2 size={14} className="text-red-400" />
                   </button>
                 </div>
               ))}
@@ -651,30 +672,13 @@ export function SettingsPage() {
           {showCategoryForm ? (
             <div className="border border-gray-200 rounded-lg p-4 space-y-3">
               <Input
-                label="分类名称"
+                label={t('categoryName')}
                 value={newCatName}
                 onChange={(e) => setNewCatName(e.target.value)}
-                placeholder="例如：摸鱼"
+                placeholder={isEnglish ? 'For example: Break' : '例如：摸鱼'}
+                disabled={editingCategory === '其他'}
               />
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">颜色</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={newCatColor}
-                    onChange={(e) => setNewCatColor(e.target.value)}
-                    className="w-10 h-10 rounded border cursor-pointer"
-                  />
-                  <span className="text-xs text-gray-400">{newCatColor}</span>
-                </div>
-              </div>
-              <Input
-                label="关键词 (逗号分隔)"
-                value={newCatKeywords}
-                onChange={(e) => setNewCatKeywords(e.target.value)}
-                placeholder="weibo, 抖音, bilibili"
-                hint="匹配窗口标题的关键词"
-              />
+              {editingCategory === '其他' && <p className="text-xs text-gray-400">{isEnglish ? '“Other” is the fixed fallback for unclassified items.' : '“其他”用于无法判断时兜底，名称固定。'}</p>}
               <div className="flex gap-2">
                 <Button
                   variant="primary"
@@ -682,16 +686,16 @@ export function SettingsPage() {
                   onClick={editingCategory ? updateCategory : addCategory}
                   disabled={!newCatName.trim()}
                 >
-                  {editingCategory ? '更新' : '添加'}
+                  {editingCategory ? t('update') : t('addCategory')}
                 </Button>
                 <Button variant="ghost" size="sm" icon={X} onClick={resetCategoryForm}>
-                  取消
+                  {t('cancel')}
                 </Button>
               </div>
             </div>
           ) : (
             <Button variant="secondary" size="sm" icon={Plus} onClick={() => setShowCategoryForm(true)}>
-              添加分类
+              {t('addCategory')}
             </Button>
           )}
         </div>
@@ -700,17 +704,17 @@ export function SettingsPage() {
       {/* Data Management */}
       <Card className="p-5">
         <Card.Header>
-          <Card.Title>数据管理</Card.Title>
+          <Card.Title>{t('dataManagement')}</Card.Title>
         </Card.Header>
         <div className="flex gap-3">
-          <Button variant="secondary" icon={Download} onClick={handleExport}>
-            导出 JSON
+          <Button variant="secondary" icon={Download} onClick={() => setShowExport(true)}>
+            {t('exportJson')}
           </Button>
           <Button variant="secondary" icon={Upload} onClick={handleImport}>
-            导入 JSON
+            {t('importJson')}
           </Button>
           <Button variant="danger" icon={Trash2} onClick={() => setShowClear(true)}>
-            清空数据
+            {t('clearData')}
           </Button>
         </div>
       </Card>
@@ -719,31 +723,70 @@ export function SettingsPage() {
       <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
         <Card className="p-5">
           <Card.Header>
-            <Card.Title>设置说明</Card.Title>
+            <Card.Title>{t('settingsHelp')}</Card.Title>
           </Card.Header>
           <div className="space-y-4 text-sm leading-6 text-gray-600">
             <section>
-              <h3 className="font-medium text-gray-800">API 配置</h3>
-              <p>默认使用 SiliconFlow，只需要填写 API Key。视觉模型、报告模型和桌宠对话模型已经有默认选择，后续需要时再调整。</p>
+              <h3 className="font-medium text-gray-800">{t('apiConfiguration')}</h3>
+              <p>{isEnglish ? 'SiliconFlow is the default provider and requires an API key. You can also choose a custom API provider.' : '默认使用硅基流动 SiliconFlow 服务商，需要填写 API Key。您也可选择自定义自己的 API 服务商。'}</p>
               {customApiEnabled && (
-                <p className="mt-2">自定义 API 适合兼容 OpenAI /chat/completions 的服务。地址示例：{DEFAULT_API_BASE_URL}。模型名需要按服务商文档原样填写。</p>
+                <p className="mt-2">{isEnglish ? `A custom API can use any OpenAI-compatible /chat/completions service. Example: ${DEFAULT_API_BASE_URL}. Use the provider's exact model name.` : `自定义 API 适合兼容 OpenAI /chat/completions 的服务。地址示例：${DEFAULT_API_BASE_URL}。模型名需要按服务商文档原样填写。`}</p>
               )}
             </section>
             <section>
-              <h3 className="font-medium text-gray-800">自动功能</h3>
-              <p>窗口追踪记录当前应用和窗口标题，是时间线的基础。自动截图识别会定时分析屏幕内容，用来生成观察事实和可能活动，需要先填写 API Key。</p>
+              <h3 className="font-medium text-gray-800">{t('automation')}</h3>
+              <p>{isEnglish ? 'An API key is required before using automated features. Window tracking records the current app and window title. Automatic screenshot recognition periodically uses a multimodal model to analyze screen content.' : '需要先填写 API Key 后使用。窗口追踪记录当前应用和窗口标题。自动截图识别会定时由多模态模型分析屏幕内容。'}</p>
+              <p className="mt-2 font-medium text-red-600">{isEnglish ? 'For full automated use, turn on every automated feature.' : '完全使用自动功能，需要全部勾选。'}</p>
             </section>
             <section>
-              <h3 className="font-medium text-gray-800">桌宠</h3>
-              <p>桌宠默认开启，用来显示下班鸭状态和提供聊天入口。它本身不会替你开启截图识别。</p>
+              <h3 className="font-medium text-gray-800">{isEnglish ? 'Desk pet' : '桌宠'}</h3>
+              <p>{isEnglish ? 'The desk pet is enabled by default. It shows Xiabanya status, provides a chat entry point, and includes Ask Duck About Screen.' : '桌宠默认开启，用来显示下班鸭状态和提供聊天入口。此外还有看图问鸭功能。'}</p>
             </section>
             <section>
-              <h3 className="font-medium text-gray-800">截图设置</h3>
-              <p>截图间隔默认 5 分钟即可。保留截图文件默认关闭，只有需要本地留图排查时再开启。</p>
+              <h3 className="font-medium text-gray-800">{t('screenshotSettings')}</h3>
+              <p>{isEnglish ? 'A five-minute interval is the default. To prevent excessive storage use, keeping screenshot files is off by default; enable it only when local image evidence is needed for troubleshooting.' : '截图间隔默认 5 分钟即可。为防止存储占用过大，保留截图文件默认关闭，如有需要本地留图排查时再开启。'}</p>
             </section>
           </div>
         </Card>
       </aside>
+
+      {showExport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowExport(false)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">导出 JSON</h2>
+              <button className="rounded p-1 hover:bg-gray-100" onClick={() => setShowExport(false)} aria-label="关闭导出设置">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-3 text-sm text-gray-700">
+              <label className="flex items-center gap-2">
+                <input type="radio" name="export-range" checked={exportMode === 'today'} onChange={() => setExportMode('today')} />
+                今天（{formatLocalDate()}）
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="export-range" checked={exportMode === 'range'} onChange={() => setExportMode('range')} />
+                自定义时间段
+              </label>
+              {exportMode === 'range' && (
+                <div className="grid grid-cols-2 gap-3 pl-6">
+                  <Input label="开始日期" type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} />
+                  <Input label="结束日期" type="date" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} />
+                </div>
+              )}
+              <label className="flex items-center gap-2">
+                <input type="radio" name="export-range" checked={exportMode === 'all'} onChange={() => setExportMode('all')} />
+                全部数据
+              </label>
+              <p className="pl-6 text-xs leading-5 text-gray-400">导出活动记录与报告；范围内会保留与日期区间相交的记录和报告。</p>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setShowExport(false)}>取消</Button>
+              <Button variant="primary" icon={Download} onClick={handleExport}>导出</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={showClear}

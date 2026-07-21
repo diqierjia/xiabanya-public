@@ -3,6 +3,23 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 
 let tray: Tray | null = null;
+let trayMainWindow: BrowserWindow | null = null;
+let trayOnQuit: (() => void) | null = null;
+
+function applyTrayLanguage(language: 'zh-CN' | 'en-US' = 'zh-CN'): void {
+  if (!tray || !trayMainWindow || !trayOnQuit) return;
+  const english = language === 'en-US';
+  tray.setToolTip(english ? 'Xiabanya' : '下班鸭');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: english ? 'Show main window' : '显示主窗口', click: () => {
+      if (trayMainWindow!.isDestroyed()) return;
+      if (trayMainWindow!.isVisible()) trayMainWindow!.focus();
+      else { trayMainWindow!.show(); trayMainWindow!.focus(); }
+    } },
+    { type: 'separator' },
+    { label: english ? 'Quit' : '退出', click: trayOnQuit },
+  ]));
+}
 
 /** 托盘图标：用项目自带的 xiabanya-logo.ico */
 function createTrayIcon(): Electron.NativeImage {
@@ -38,38 +55,16 @@ function createTrayIcon(): Electron.NativeImage {
  * @param onQuit - 退出回调：设置 forceQuit 标志后调用 app.quit()
  * @returns 创建的 Tray 实例
  */
-export function createTray(mainWindow: BrowserWindow, onQuit: () => void): Tray {
+export function createTray(mainWindow: BrowserWindow, onQuit: () => void, language: 'zh-CN' | 'en-US' = 'zh-CN'): Tray {
   if (tray) {
     return tray;
   }
 
   const icon = createTrayIcon();
   tray = new Tray(icon);
-  tray.setToolTip('下班鸭');
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: '显示主窗口',
-      click: () => {
-        if (mainWindow.isDestroyed()) return;
-        if (mainWindow.isVisible()) {
-          mainWindow.focus();
-        } else {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: '退出',
-      click: () => {
-        onQuit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
+  trayMainWindow = mainWindow;
+  trayOnQuit = onQuit;
+  applyTrayLanguage(language);
 
   // 点击托盘图标：切换窗口显示/隐藏
   tray.on('click', () => {
@@ -92,5 +87,11 @@ export function destroyTray(): void {
   if (tray) {
     tray.destroy();
     tray = null;
+    trayMainWindow = null;
+    trayOnQuit = null;
   }
+}
+
+export function updateTrayLanguage(language: 'zh-CN' | 'en-US'): void {
+  applyTrayLanguage(language);
 }

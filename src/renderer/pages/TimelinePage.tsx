@@ -61,8 +61,9 @@ const IDLE_MERGE_GAP_SEC = 30 * 60;
 const VISION_IDLE_ABSORB_GAP_SEC = 5 * 60;
 const MAX_ABSORBABLE_VISION_IDLE_SEC = 10 * 60;
 const MIN_BLOCK_HEIGHT = 18;
-const ACTIVITY_TYPE_AGGREGATION_MAX_SCALE = 0.8;
-const CATEGORY_AGGREGATION_MAX_SCALE = 2.5;
+// Keep a readable 18px block: 18px / 20min ≈ 0.9, 18px / 5min = 3.6.
+const ACTIVITY_TYPE_AGGREGATION_MAX_SCALE = 0.9;
+const CATEGORY_AGGREGATION_MAX_SCALE = 3.6;
 const ACTIVITY_TYPE_DISPLAY_MERGE_GAP_SEC = 20 * 60;
 const CATEGORY_DISPLAY_MERGE_GAP_SEC = 10 * 60;
 
@@ -657,25 +658,27 @@ function WeekIdleBand({
 
 function WeekTimeline({
   days,
-  weekStart,
   selectedId,
   timelineScale,
   now,
   onZoomIn,
   onZoomOut,
   onSelect,
+  onClearSelection,
 }: {
   days: WeekDay[];
-  weekStart: string;
   selectedId: string | null;
   timelineScale: number;
   now: Date;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onSelect: (item: TimeMapItem) => void;
+  onClearSelection: () => void;
 }) {
   const pxPerMinute = timelineScale;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const todayColumnRef = useRef<HTMLDivElement>(null);
+  const didInitialScrollRef = useRef(false);
   const timelineStartHour = useMemo(() => {
     const earliestHour = Math.min(...days.flatMap((day) => [...day.idleBands, ...day.items]
       .map((item) => parseUtcStorageDateTime(item.startAt)?.getHours())
@@ -690,9 +693,18 @@ function WeekTimeline({
 
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
-    container.scrollTop = TIMELINE_TOP_PADDING + (DEFAULT_SCROLL_HOUR - timelineStartHour) * 60 * pxPerMinute;
-  }, [timelineStartHour, weekStart]);
+    const todayColumn = todayColumnRef.current;
+    if (!container || !todayColumn || currentTimeTop === null || didInitialScrollRef.current) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const top = Math.max(0, currentTimeTop - container.clientHeight / 2);
+      const left = Math.max(0, todayColumn.offsetLeft - (container.clientWidth - todayColumn.offsetWidth) / 2);
+      container.scrollTo({ top, left });
+      didInitialScrollRef.current = true;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentTimeTop]);
 
   return (
     <Card className="relative overflow-hidden">
@@ -747,7 +759,13 @@ function WeekTimeline({
         }}
       >
         <div className="grid min-w-[1020px] grid-cols-[60px_repeat(7,minmax(128px,1fr))]">
-          <div className="relative bg-white" style={{ height: trackHeight }}>
+          <div
+            className="relative bg-white"
+            style={{ height: trackHeight }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) onClearSelection();
+            }}
+          >
             {Array.from({ length: VISIBLE_END_HOUR - timelineStartHour + 1 }, (_, index) => {
               const hour = timelineStartHour + index;
               return (
@@ -764,18 +782,22 @@ function WeekTimeline({
           {days.map((day) => (
             <div
               key={day.dateStr}
+              ref={day.isToday ? todayColumnRef : undefined}
               className={`relative border-l border-gray-200 bg-white ${day.isToday ? 'bg-brand-50/30' : ''}`}
               style={{ height: trackHeight }}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) onClearSelection();
+              }}
             >
               {Array.from({ length: VISIBLE_END_HOUR - timelineStartHour + 1 }, (_, index) => (
                 <div
                   key={index}
-                  className="absolute left-0 right-0 border-t border-dashed border-gray-200"
+                  className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-gray-200"
                   style={{ top: TIMELINE_TOP_PADDING + index * 60 * pxPerMinute }}
                 />
               ))}
               {day.isToday && currentTimeTop !== null && (
-                <div className="absolute left-0 right-0 z-20 border-t-2 border-red-500" style={{ top: currentTimeTop }} />
+                <div className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-red-500" style={{ top: currentTimeTop }} />
               )}
               {day.idleBands.map((item) => (
                 <WeekIdleBand
@@ -939,17 +961,7 @@ export function TimelinePage() {
   );
 
   useEffect(() => {
-    if (!selectedTimeMapId && allTimeMapItems.length > 0) {
-      setSelectedTimeMapId(allTimeMapItems[0].id);
-    }
-    if (
-      selectedTimeMapId &&
-      allTimeMapItems.length > 0 &&
-      !allTimeMapItems.some((item) => item.id === selectedTimeMapId)
-    ) {
-      setSelectedTimeMapId(allTimeMapItems[0].id);
-    }
-    if (allTimeMapItems.length === 0 && selectedTimeMapId) {
+    if (selectedTimeMapId && !allTimeMapItems.some((item) => item.id === selectedTimeMapId)) {
       setSelectedTimeMapId(null);
     }
   }, [selectedTimeMapId, allTimeMapItems]);
@@ -1048,18 +1060,18 @@ export function TimelinePage() {
           description="尝试切换周次，或确认 Vision Auto 正在运行"
         />
       ) : view === 'map' ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-4">
+        <div className={selectedTimeMapItem ? 'grid grid-cols-[minmax(0,1fr)_320px] gap-4' : undefined}>
           <WeekTimeline
             days={displayWeekDays}
-            weekStart={startDate}
             selectedId={selectedTimeMapId}
             timelineScale={timelineScale}
             now={now}
             onZoomIn={() => adjustTimelineScale(TIMELINE_SCALE_STEP)}
             onZoomOut={() => adjustTimelineScale(-TIMELINE_SCALE_STEP)}
             onSelect={(item) => setSelectedTimeMapId(item.id)}
+            onClearSelection={() => setSelectedTimeMapId(null)}
           />
-          <DetailPanel item={selectedTimeMapItem} />
+          {selectedTimeMapItem && <DetailPanel item={selectedTimeMapItem} />}
         </div>
       ) : (
         <Card>

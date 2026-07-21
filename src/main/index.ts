@@ -158,7 +158,7 @@ if (!gotSingleInstanceLock) {
     createTray(mainWindow!, () => {
       forceQuit = true;
       app.quit();
-    });
+    }, db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN');
 
     // Mac 行为：点击 Dock 图标时，如果没有窗口则创建，有则显示
     app.on('activate', () => {

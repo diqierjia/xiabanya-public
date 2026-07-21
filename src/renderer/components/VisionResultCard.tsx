@@ -4,6 +4,7 @@ import { Badge } from './ui/Badge';
 import { dur } from '../lib/utils';
 import type { VisionResultWithDuration } from '../../shared/types';
 import { formatUtcStorageDateTimeLocal, formatUtcStorageTime, parseUtcStorageDateTime } from '../../shared/time';
+import { useTranslation } from '../i18n';
 
 interface VisionResultCardProps {
   result: VisionResultWithDuration;
@@ -15,14 +16,14 @@ interface VisionResultCardProps {
 }
 
 /** 计算相对时间文案（如 "3 分钟前"） */
-function relativeTime(createdAt: string): string {
+function relativeTime(createdAt: string, isEnglish: boolean): string {
   const now = Date.now();
   const then = parseUtcStorageDateTime(createdAt)?.getTime();
   if (then === undefined) return createdAt.substring(5, 16);
   const diffSec = Math.round((now - then) / 1000);
-  if (diffSec < 60) return '刚刚';
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 60) return isEnglish ? 'Just now' : '刚刚';
+  if (diffSec < 3600) return isEnglish ? `${Math.floor(diffSec / 60)} min ago` : `${Math.floor(diffSec / 60)} 分钟前`;
+  if (diffSec < 86400) return isEnglish ? `${Math.floor(diffSec / 3600)} hr ago` : `${Math.floor(diffSec / 3600)} 小时前`;
   return createdAt.substring(5, 16);
 }
 
@@ -30,6 +31,7 @@ function relativeTime(createdAt: string): string {
  * AI 识别结果卡片 — 可复用于 TodayPage 列表 & TimelinePage 表格
  */
 export default function VisionResultCard({ result, variant = 'full', expanded: extExpanded, onToggle }: VisionResultCardProps) {
+  const { t, isEnglish, enumLabel, durationLabel } = useTranslation();
   const [localExpanded, setLocalExpanded] = useState(false);
   const expanded = extExpanded ?? localExpanded;
   const toggle = () => {
@@ -70,16 +72,16 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
         {expanded && (
           <div className="bg-gray-50 rounded-b-lg px-4 py-3 border border-gray-100 border-t-0 -mt-px">
             {observedFact && (
-              <p className="text-xs text-gray-600 mb-1">事实: {observedFact}</p>
+              <p className="text-xs text-gray-600 mb-1">{isEnglish ? 'Fact' : '事实'}: {observedFact}</p>
             )}
             {possibleActivity && (
-              <p className="text-xs text-gray-500 mb-2">推断: {possibleActivity}</p>
+              <p className="text-xs text-gray-500 mb-2">{isEnglish ? 'Inference' : '推断'}: {possibleActivity}</p>
             )}
             <div className="flex gap-4 text-xs text-gray-400 flex-wrap">
-              <span>应用: {result.app || '-'}</span>
-              <span>置信度: {result.confidence || '-'}</span>
-              <span>类型: {result.activity_type || '-'}</span>
-              <span>模型: {result.model || '-'}</span>
+              <span>{t('application')}: {result.app || '-'}</span>
+              <span>{t('confidence')}: {enumLabel(result.confidence || '-')}</span>
+              <span>{t('activityType')}: {enumLabel(result.activity_type || '-')}</span>
+              <span>{t('model')}: {result.model || '-'}</span>
             </div>
           </div>
         )}
@@ -93,7 +95,7 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs text-gray-400">{relativeTime(result.created_at)}</span>
+            <span className="text-xs text-gray-400">{relativeTime(result.created_at, isEnglish)}</span>
             <Badge category={result.category} />
           </div>
           <h3 className="text-sm font-semibold text-gray-800 truncate">{result.title}</h3>
@@ -103,7 +105,7 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
           {result.approx_duration_sec > 0 && (
             <span className="text-xs text-gray-500 flex items-center gap-1">
               <Clock size={10} />
-              约 {dur(result.approx_duration_sec)}
+              {isEnglish ? 'About ' : '约 '}{isEnglish ? durationLabel(result.approx_duration_sec) : dur(result.approx_duration_sec)}
             </span>
           )}
           {result.app && result.app !== '截图' && (
@@ -122,24 +124,24 @@ export default function VisionResultCard({ result, variant = 'full', expanded: e
         <div className="mt-3 pt-3 border-t border-gray-100">
           <div className="space-y-2 mb-3">
             <div>
-              <p className="text-xs text-gray-400 mb-1">观察事实</p>
+              <p className="text-xs text-gray-400 mb-1">{t('observedFact')}</p>
               <p className="text-xs text-gray-700">{observedFact || '-'}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">可能活动</p>
+              <p className="text-xs text-gray-400 mb-1">{t('possibleActivity')}</p>
               <p className="text-xs text-gray-700">{possibleActivity || '-'}</p>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mb-1">AI 原始响应:</p>
+          <p className="text-xs text-gray-500 mb-1">{t('rawAiResponse')}:</p>
           <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-auto max-h-48 whitespace-pre-wrap">
             {result.raw_response}
           </pre>
           <div className="flex gap-4 mt-2 text-xs text-gray-400 flex-wrap">
-            <span>应用: {result.app || '-'}</span>
-            <span>置信度: {result.confidence || '-'}</span>
-            <span>类型: {result.activity_type || '-'}</span>
-            <span>模型: {result.model || '-'}</span>
-            <span>时间: {formatUtcStorageDateTimeLocal(result.created_at)}</span>
+            <span>{t('application')}: {result.app || '-'}</span>
+            <span>{t('confidence')}: {enumLabel(result.confidence || '-')}</span>
+            <span>{t('activityType')}: {enumLabel(result.activity_type || '-')}</span>
+            <span>{t('model')}: {result.model || '-'}</span>
+            <span>{t('time')}: {formatUtcStorageDateTimeLocal(result.created_at)}</span>
           </div>
         </div>
       )}

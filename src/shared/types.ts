@@ -5,7 +5,22 @@ export const CATEGORIES = [
   '休闲娱乐', '其他',
 ] as const;
 
-export type Category = (typeof CATEGORIES)[number];
+/**
+ * 分类名称由设置中的“分类管理”维护；这里的默认列表用于首次启动和旧数据兜底。
+ */
+export type Category = string;
+
+export function normalizeManagedCategories(value: unknown): string[] {
+  const source = Array.isArray(value) ? value : [];
+  const names = source
+    .map((item) => typeof item === 'string' ? item : (item && typeof item === 'object' && 'name' in item ? (item as { name?: unknown }).name : ''))
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => name.trim().slice(0, 30))
+    .filter(Boolean);
+  const unique = [...new Set(names)];
+  const withDefaults = unique.length > 0 ? unique : [...CATEGORIES];
+  return [...withDefaults.filter((name) => name !== '其他'), '其他'];
+}
 
 // ===== Vision 结构化识别 =====
 export const VISION_CONFIDENCES = ['high', 'medium', 'low'] as const;
@@ -150,6 +165,8 @@ export type DeskPetState = (typeof DESK_PET_STATES)[number];
 
 // ===== 应用设置 =====
 export interface AppSettings {
+  /** Application UI language. Content created by the user is never translated. */
+  language: 'zh-CN' | 'en-US';
   siliconflow_api_key: string;
   custom_api_enabled: boolean;
   custom_api_base_url: string;
@@ -342,8 +359,10 @@ export interface ChatCompactionDebugRun {
   end_turn: number;
   source_refs: string[];
   conversation_summary: string;
-  status: 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   error: string | null;
+  attempt_count: number;
+  next_retry_at: string | null;
   calls: MemoryToolDebugCall[];
   resident_memory: Array<{ kind: 'event' | 'element'; id: string; label: string }>;
   event_ids: string[];
@@ -405,6 +424,18 @@ export interface ReportsQuery {
   q?: string;
 }
 
+export interface ExportJsonOptions {
+  start?: string;
+  end?: string;
+}
+
+export interface ExportJsonData {
+  exported_at: string;
+  range: { start: string; end: string } | null;
+  records: ActivityRecord[];
+  reports: Report[];
+}
+
 // ===== 统计 =====
 export interface DailySummary {
   recordCount: number;
@@ -427,7 +458,7 @@ export interface TopApp {
 }
 
 // ===== 分类颜色映射 =====
-export const CATEGORY_COLORS: Record<Category, string> = {
+export const CATEGORY_COLORS: Record<string, string> = {
   '代码开发': 'bg-blue-100 text-blue-800',
   '文稿写作': 'bg-amber-100 text-amber-800',
   '视觉设计': 'bg-pink-100 text-pink-800',
@@ -454,6 +485,7 @@ export type Template = (typeof TEMPLATES)[number];
 export const DEFAULT_API_BASE_URL = 'https://api.siliconflow.cn/v1';
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  language: 'zh-CN',
   siliconflow_api_key: '',
   custom_api_enabled: false,
   custom_api_base_url: '',

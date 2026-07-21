@@ -1,4 +1,5 @@
 export type BadgeSize = 'sm' | 'md';
+import { useTranslation } from '../../i18n';
 
 export interface BadgeProps {
   category: string;
@@ -34,6 +35,7 @@ export function Badge({
   color,
   className = '',
 }: BadgeProps) {
+  const { categoryLabel } = useTranslation();
   const defaultColor = CATEGORY_COLOR_MAP[category] || 'bg-gray-100 text-gray-600';
 
   return (
@@ -43,7 +45,7 @@ export function Badge({
       } ${className}`}
       style={color ? { backgroundColor: `${color}18`, color } : undefined}
     >
-      {category}
+      {categoryLabel(category)}
     </span>
   );
 }

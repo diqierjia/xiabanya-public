@@ -7,6 +7,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Input } from '../components/ui/Input';
 import type { VisionResultWithDuration } from '../lib/types';
+import { useTranslation } from '../i18n';
 
 /**
  * RecordsPage — AI 识别记录独立页面
@@ -19,6 +20,7 @@ import type { VisionResultWithDuration } from '../lib/types';
  * - 空状态提示
  */
 export function RecordsPage() {
+  const { isEnglish, t } = useTranslation();
   const api = useXiabanyaApi();
   const [selectedDate, setSelectedDate] = useState<string>(today());
   const [results, setResults] = useState<VisionResultWithDuration[]>([]);
@@ -88,7 +90,7 @@ export function RecordsPage() {
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="搜索标题、应用名…"
+            placeholder={t('searchTitleApp')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 pr-8"
@@ -105,7 +107,7 @@ export function RecordsPage() {
 
         {/* 结果计数 */}
         <span className="text-xs text-gray-400">
-          {filteredResults.length} 条记录
+          {filteredResults.length} {isEnglish ? 'records' : '条记录'}
         </span>
       </div>
 
@@ -120,9 +122,9 @@ export function RecordsPage() {
       {!loading && error && (
         <EmptyState
           icon={AlertCircle}
-          title="加载失败"
-          description="请检查网络后重试"
-          actionLabel="重试"
+          title={t('loadingFailed')}
+          description={t('checkNetwork')}
+          actionLabel={t('retry')}
           onAction={() => fetchResults(selectedDate)}
         />
       )}
@@ -131,8 +133,8 @@ export function RecordsPage() {
       {!loading && !error && results.length === 0 && (
         <EmptyState
           icon={ClipboardList}
-          title="暂无 AI 识别记录"
-          description={`${selectedDate} 没有 AI 截屏识别记录`}
+          title={t('noAiRecords')}
+          description={isEnglish ? `No AI screenshot recognition records on ${selectedDate}` : `${selectedDate} 没有 AI 截屏识别记录`}
         />
       )}
 
@@ -140,9 +142,9 @@ export function RecordsPage() {
       {!loading && !error && results.length > 0 && filteredResults.length === 0 && (
         <EmptyState
           icon={Search}
-          title="无匹配记录"
-          description={`未找到与 "${searchQuery}" 相关的 AI 识别记录`}
-          actionLabel="清除搜索"
+          title={t('noMatchingRecords')}
+          description={isEnglish ? `No AI recognition records related to “${searchQuery}”` : `未找到与 "${searchQuery}" 相关的 AI 识别记录`}
+          actionLabel={t('clearSearch')}
           onAction={clearSearch}
         />
       )}

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import type { ActivityRecord, ChatHistoryMessage, ChatMemoryRuntimeDebug, ChatMessage, ChatMessagesQuery, ChatStreamDeltaEvent, ChatStreamDoneEvent, DeskPetChatMirrorEvent, DeskPetState, IdlePeriod, MemoryDashboard, MemoryElementDetail, MemoryEventDetail, MemoryEventUpdate, MemoryListQuery, MemoryToolDebugRun, ProactiveMessage, QueuedChatMessage, Report, VisionResult, VisionResultWithDuration, VisionQuery, TrackerSnapshot, RecordUpsertDTO, RecordsQuery, ReportsQuery } from '../shared/types';
+import type { ActivityRecord, ChatHistoryMessage, ChatMemoryRuntimeDebug, ChatMessage, ChatMessagesQuery, ChatStreamDeltaEvent, ChatStreamDoneEvent, DeskPetChatMirrorEvent, DeskPetState, ExportJsonData, ExportJsonOptions, IdlePeriod, MemoryDashboard, MemoryElementDetail, MemoryEventDetail, MemoryEventUpdate, MemoryListQuery, MemoryToolDebugRun, ProactiveMessage, QueuedChatMessage, Report, VisionResult, VisionResultWithDuration, VisionQuery, TrackerSnapshot, RecordUpsertDTO, RecordsQuery, ReportsQuery } from '../shared/types';
 
 type CallbackFn = (...args: unknown[]) => void;
 
@@ -21,7 +21,7 @@ const api = {
     create: (report: Omit<Report, 'id' | 'created_at'>) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_CREATE, report) as Promise<string>,
     update: (id: string, content: string) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_UPDATE, id, content) as Promise<Report>,
     delete: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.REPORTS_DELETE, id),
-    generate: (params: { report_type: string; template: string; start_date: string; end_date: string }) =>
+    generate: (params: { report_type: string; template: string; start_date: string; end_date: string; custom_prompt?: string }) =>
       ipcRenderer.invoke(IPC_CHANNELS.REPORTS_GENERATE, params) as Promise<Report>,
   },
   settings: {
@@ -29,6 +29,10 @@ const api = {
     set: (key: string, value: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET, key, value),
     getAll: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_ALL) as Promise<Record<string, string>>,
     getApiKey: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_API_KEY) as Promise<string>,
+  },
+  categories: {
+    save: (payload: { categories: string[]; renames?: Array<{ from: string; to: string }> }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CATEGORIES_SAVE, payload) as Promise<string[]>,
   },
   tracker: {
     start: () => ipcRenderer.invoke(IPC_CHANNELS.TRACKER_START),
@@ -105,6 +109,7 @@ const api = {
     listToolDebug: (limit?: number) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_TOOL_DEBUG_LIST, limit) as Promise<MemoryToolDebugRun[]>,
     getToolDebugForAssistantMessage: (assistantMessageId: string) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_TOOL_DEBUG_GET_BY_ASSISTANT_MESSAGE, assistantMessageId) as Promise<MemoryToolDebugRun | undefined>,
     getChatRuntimeDebug: () => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_CHAT_RUNTIME_DEBUG) as Promise<ChatMemoryRuntimeDebug>,
+    retryChatCompaction: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.MEMORY_CHAT_COMPACTION_RETRY, id) as Promise<boolean>,
     onUpdated: (cb: () => void) => {
       const listener = () => cb();
       ipcRenderer.on(IPC_CHANNELS.MEMORY_UPDATED, listener);
@@ -138,7 +143,7 @@ const api = {
   proactive: {
     getOffworkPrediction: () => ipcRenderer.invoke(IPC_CHANNELS.PROACTIVE_OFFWORK_PREDICTION) as Promise<{ minuteOfDay: number; displayTime: string; candidateCount: number; confidence: string; candidates: Array<{ date: string; minuteOfDay: number; source: string; weight: number }> } | null>,
   },
-  exportJson: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_JSON),
+  exportJson: (options?: ExportJsonOptions) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_JSON, options) as Promise<ExportJsonData>,
   importJson: (data: unknown) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_JSON, data) as Promise<number>,
   clearData: () => ipcRenderer.invoke(IPC_CHANNELS.CLEAR_DATA),
 };

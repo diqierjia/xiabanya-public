@@ -1,4 +1,5 @@
 import { formatLocalDate } from '../../shared/time';
+import { useTranslation } from '../i18n';
 
 interface DateRangePickerProps {
   startDate: string;
@@ -30,12 +31,13 @@ function monthStart(): string {
 }
 
 export function DateRangePicker({ startDate, endDate, onChange }: DateRangePickerProps) {
+  const { t, isEnglish } = useTranslation();
   const presets = [
-    { label: '今天', start: todayStr(), end: todayStr() },
-    { label: '昨天', start: daysAgo(1), end: daysAgo(1) },
-    { label: '本周', start: weekStart(), end: todayStr() },
-    { label: '本月', start: monthStart(), end: todayStr() },
-    { label: '近7天', start: daysAgo(6), end: todayStr() },
+    { label: t('dateRangeToday'), start: todayStr(), end: todayStr() },
+    { label: t('dateRangeYesterday'), start: daysAgo(1), end: daysAgo(1) },
+    { label: t('dateRangeThisWeek'), start: weekStart(), end: todayStr() },
+    { label: t('dateRangeThisMonth'), start: monthStart(), end: todayStr() },
+    { label: t('dateRangeLast7Days'), start: daysAgo(6), end: todayStr() },
   ];
   const activePresetIndex = presets.findIndex((preset) => startDate === preset.start && endDate === preset.end);
 
@@ -48,7 +50,7 @@ export function DateRangePicker({ startDate, endDate, onChange }: DateRangePicke
           onChange={(e) => onChange(e.target.value, endDate)}
           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
         />
-        <span className="text-sm text-gray-400">至</span>
+        <span className="text-sm text-gray-400">{isEnglish ? 'to' : '至'}</span>
         <input
           type="date"
           value={endDate}

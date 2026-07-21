@@ -4,6 +4,14 @@ function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
 
+/** The renderer updates this attribute when the user changes the UI language. */
+function displayLocale(): string {
+  if (typeof document !== 'undefined' && document.documentElement.lang === 'en-US') {
+    return 'en-US';
+  }
+  return 'zh-CN';
+}
+
 export function formatLocalDate(date: Date = new Date()): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
@@ -30,7 +38,7 @@ export function parseUtcStorageDateTime(value?: string): Date | null {
 export function formatUtcStorageTime(value?: string, includeSeconds = false): string {
   const date = parseUtcStorageDateTime(value);
   if (!date) return includeSeconds ? '--:--:--' : '--:--';
-  return date.toLocaleTimeString('zh-CN', {
+  return date.toLocaleTimeString(displayLocale(), {
     hour: '2-digit',
     minute: '2-digit',
     second: includeSeconds ? '2-digit' : undefined,

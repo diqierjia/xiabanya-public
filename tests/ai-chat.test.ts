@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { addTemporalChatContext, buildChatCompletionPayload, buildChatSystemPrompt, MEMORY_CHAT_TOOLS, requestMemoryChatTurn, requestMemoryToolCalls, selectRecentChatTurns, streamChatCompletion } from '../src/main/ai';
+import { addTemporalChatContext, buildChatCompletionPayload, buildChatSystemPrompt, extractRealtimeMemoryEvent, MEMORY_CHAT_TOOLS, requestMemoryChatTurn, requestMemoryToolCalls, selectRecentChatTurns, streamChatCompletion } from '../src/main/ai';
 
 describe('buildChatSystemPrompt()', () => {
   it('defines the desk pet as a relaxed coworker with clear boundaries', () => {
@@ -42,9 +42,10 @@ describe('buildChatCompletionPayload()', () => {
 });
 
 describe('memory chat tools', () => {
-  it('defines the agreed read and memory-proposal tools', () => {
+  it('defines memory, historical Vision, and raw-record read tools', () => {
     expect(MEMORY_CHAT_TOOLS.map((tool) => tool.function.name)).toEqual([
-      'search_events', 'expand_event', 'search_elements', 'expand_element', 'propose_memory',
+      'search_events', 'expand_event', 'search_elements', 'expand_element',
+      'search_vision_results', 'search_records', 'propose_memory',
     ]);
   });
 
@@ -121,6 +122,23 @@ describe('memory chat tools', () => {
       expect(second).toEqual({ supported: true, calls: [], content: '我记得，最早那版 PRD 是……', usedEventIds: ['evt_1'], usedElementIds: [] });
       const secondRequest = JSON.parse(String(fetchMock.mock.calls[1][1].body));
       expect(secondRequest.tools).toBeUndefined();
+      expect(secondRequest.response_format).toEqual({
+        type: 'json_schema',
+        json_schema: {
+          name: 'memory_chat_final_reply',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              reply: { type: 'string' },
+              used_event_ids: { type: 'array', items: { type: 'string' } },
+              used_element_ids: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['reply', 'used_event_ids', 'used_element_ids'],
+          },
+        },
+      });
       expect(secondRequest.messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_1' });
     } finally {
       vi.unstubAllGlobals();
@@ -138,6 +156,40 @@ describe('memory chat tools', () => {
         [{ role: 'user', content: '还记得吗？' }],
         '日期: 2026-07-13',
       )).resolves.toMatchObject({ supported: false, usedEventIds: [], usedElementIds: [] });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('extractRealtimeMemoryEvent()', () => {
+  it('uses the independent low-cost JSON extraction request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"event":{"title":"花生过敏","summary":"用户明确表示对花生过敏。","narrative":"用户说自己对花生过敏。","tags":["过敏"],"scope":"user"}}' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(extractRealtimeMemoryEvent('sk-test', 'light-model', '我对花生过敏，不能碰。')).resolves.toEqual({
+        event: {
+          title: '花生过敏', summary: '用户明确表示对花生过敏。', narrative: '用户说自己对花生过敏。', tags: ['过敏'], scope: 'user',
+        },
+      });
+      const request = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(request).toMatchObject({ model: 'light-model', temperature: 0.1, max_tokens: 500, stream: false });
+      expect(request.messages[0].content).toContain('实时高价值记忆提取器');
+      expect(request.messages[0].content).not.toContain('会话整理器');
+      expect(request.messages[1].content).toContain('我对花生过敏，不能碰。');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('treats a null event as a deliberate non-extraction', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"event":null}' } }],
+    }), { status: 200 })));
+    try {
+      await expect(extractRealtimeMemoryEvent('sk-test', 'light-model', '花生过敏怎么办？')).resolves.toEqual({ event: null });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -209,8 +261,8 @@ describe('buildChatCompletionPayload() — thinking message safety', () => {
     expect(userMessage.content).toBe(longContent);
   });
 
-  it('keeps the most recent 25 complete user-started turns', () => {
-    const manyMessages = Array.from({ length: 26 }, (_, i) => ([
+  it('keeps the most recent 12 complete user-started turns', () => {
+    const manyMessages = Array.from({ length: 13 }, (_, i) => ([
       { role: 'user' as const, content: `问题 ${i + 1}` },
       { role: 'assistant' as const, content: `回答 ${i + 1}` },
     ])).flat();
@@ -222,25 +274,25 @@ describe('buildChatCompletionPayload() — thinking message safety', () => {
     );
 
     const userMessages = body.messages.slice(1);
-    expect(userMessages.length).toBe(50);
+    expect(userMessages.length).toBe(24);
     expect(userMessages[0]).toEqual({ role: 'user', content: '问题 2' });
     expect(userMessages[1]).toEqual({ role: 'assistant', content: '回答 2' });
-    expect(userMessages[48]).toEqual({ role: 'user', content: '问题 26' });
-    expect(userMessages[49]).toEqual({ role: 'assistant', content: '回答 26' });
+    expect(userMessages[22]).toEqual({ role: 'user', content: '问题 13' });
+    expect(userMessages[23]).toEqual({ role: 'assistant', content: '回答 13' });
   });
 
-  it('keeps persisted message ids aligned with the same 25-turn short-term window', () => {
-    const messages = Array.from({ length: 26 }, (_, index) => ([
+  it('keeps persisted message ids aligned with the same 12-turn short-term window', () => {
+    const messages = Array.from({ length: 13 }, (_, index) => ([
       { id: `u-${index + 1}`, role: 'user' as const, content: `问题 ${index + 1}` },
       { id: `a-${index + 1}`, role: 'assistant' as const, content: `回答 ${index + 1}` },
     ])).flat();
 
     const shortTermMessages = selectRecentChatTurns(messages);
 
-    expect(shortTermMessages).toHaveLength(50);
+    expect(shortTermMessages).toHaveLength(24);
     expect(shortTermMessages[0].id).toBe('u-2');
     expect(shortTermMessages.map((message) => message.id)).not.toContain('u-1');
-    expect(shortTermMessages.at(-1)?.id).toBe('a-26');
+    expect(shortTermMessages.at(-1)?.id).toBe('a-13');
   });
 
   it('adds stored message time to model context without changing the user text', () => {

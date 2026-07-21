@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Download, FileJson, Brain, Monitor, Save } from 'lucide-react';
+import { Copy, Download, FileJson, Brain, Monitor, Save, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { DateRangePicker } from '../components/DateRangePicker';
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -11,6 +11,77 @@ import { REPORT_TEMPLATES, today as todayFn } from '../lib/constants';
 import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 
 type ReportType = '日报' | '周报' | '月报';
+
+const REPORT_PROMPT_SETTING_PREFIX = 'report_custom_prompt:';
+
+const REPORT_TYPES: readonly ReportType[] = ['日报', '周报', '月报'];
+
+function promptKey(template: string, reportType: ReportType): string {
+  return `${template}:${reportType}`;
+}
+
+function outputName(template: string, reportType: ReportType): string {
+  if (template === '工作日报') return `工作${reportType}`;
+  if (reportType === '日报') return '全天回顾';
+  return `全${reportType === '周报' ? '周' : '月'}回顾`;
+}
+
+const DEFAULT_REPORT_PROMPTS: Record<string, string> = {
+  [promptKey('工作日报', '日报')]: `请以清楚、简洁、可直接编辑提交的工作日报形式输出。
+
+建议结构：
+## 今日工作
+按主题归纳可确认的工作内容。
+## 可写入日报的进展
+提炼材料明确支持的进展，不夸大完成度。
+## 待确认
+列出需要我补充或确认的内容；没有则写“无”。`,
+  [promptKey('工作日报', '周报')]: `请以清楚、简洁、可直接编辑提交的工作周报形式输出。
+
+建议结构：
+## 本周工作
+按主题归纳本周可确认的工作内容。
+## 阶段进展
+提炼材料明确支持的进展，不夸大完成度。
+## 待确认与下周关注
+列出需要我补充、确认或继续跟进的内容；没有则写“无”。`,
+  [promptKey('工作日报', '月报')]: `请以清楚、简洁、可直接编辑提交的工作月报形式输出。
+
+建议结构：
+## 本月工作
+按主题归纳本月可确认的工作内容。
+## 阶段进展
+提炼材料明确支持的进展，不夸大完成度。
+## 待确认与下月关注
+列出需要我补充、确认或继续跟进的内容；没有则写“无”。`,
+  [promptKey('全天回顾', '日报')]: `请以客观、不过度评判的方式复盘全天活动。
+
+建议结构：
+## 全天概览
+用 2-4 句话概括这一天。
+## 活动时间线
+按时间顺序归纳主要活动和切换。
+## 工作与生活分布
+简要说明工作、个人/娱乐、空闲或不确定内容。`,
+  [promptKey('全天回顾', '周报')]: `请以客观、不过度评判的方式复盘本周活动。
+
+建议结构：
+## 本周概览
+用 2-4 句话概括本周的活动结构。
+## 主要活动与变化
+按时间或主题归纳主要活动和切换。
+## 工作与生活分布
+简要说明工作、个人/娱乐、空闲或不确定内容。`,
+  [promptKey('全天回顾', '月报')]: `请以客观、不过度评判的方式复盘本月活动。
+
+建议结构：
+## 本月概览
+用 2-4 句话概括本月的活动结构。
+## 主要活动与变化
+按时间或主题归纳主要活动和切换。
+## 工作与生活分布
+简要说明工作、个人/娱乐、空闲或不确定内容。`,
+};
 
 export function ReportPage() {
   const api = useXiabanyaApi();
@@ -24,6 +95,11 @@ export function ReportPage() {
   const [editMode, setEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [prompts, setPrompts] = useState<Record<string, string>>({ ...DEFAULT_REPORT_PROMPTS });
+  const [promptsLoaded, setPromptsLoaded] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const currentPromptKey = promptKey(template, reportType);
+  const currentOutputName = outputName(template, reportType);
 
   // v2.2: 素材预览
   const [materialPreview, setMaterialPreview] = useState<{
@@ -32,6 +108,71 @@ export function ReportPage() {
     loaded: boolean;
     loading: boolean;
   }>({ visionCount: 0, recordCount: 0, loaded: false, loading: false });
+
+  useEffect(() => {
+    let active = true;
+    const promptTargets = REPORT_TEMPLATES.flatMap((reportTemplate) => REPORT_TYPES.map((type) => ({
+      template: reportTemplate,
+      reportType: type,
+      key: promptKey(reportTemplate, type),
+    })));
+    void Promise.all(promptTargets.map(async ({ template: reportTemplate, reportType: type, key }) => {
+      const saved = await api.settings.get(`${REPORT_PROMPT_SETTING_PREFIX}${key}`, '');
+      // 旧版本按用途保存提示词；仅让它迁移到同用途的日报，避免日报结构误用于周报和月报。
+      const legacy = type === '日报'
+        ? await api.settings.get(`${REPORT_PROMPT_SETTING_PREFIX}${reportTemplate}`, '')
+        : '';
+      return [key, saved.trim() || legacy.trim() || DEFAULT_REPORT_PROMPTS[key]] as const;
+    })).then((entries) => {
+      if (!active) return;
+      setPrompts(Object.fromEntries(entries));
+      setPromptsLoaded(true);
+    }).catch(() => {
+      if (active) setPromptsLoaded(true);
+    });
+    return () => { active = false; };
+  }, [api]);
+
+  const currentPrompt = useMemo(
+    () => prompts[currentPromptKey] || DEFAULT_REPORT_PROMPTS[currentPromptKey] || '',
+    [prompts, currentPromptKey],
+  );
+
+  const setCurrentPrompt = (nextPrompt: string) => {
+    setPrompts((previous) => ({ ...previous, [currentPromptKey]: nextPrompt }));
+  };
+
+  const savePrompt = async () => {
+    const prompt = currentPrompt.trim();
+    if (!prompt) {
+      toast.error('提示词不能为空');
+      return;
+    }
+    setSavingPrompt(true);
+    try {
+      await api.settings.set(`${REPORT_PROMPT_SETTING_PREFIX}${currentPromptKey}`, prompt);
+      setCurrentPrompt(prompt);
+      toast.success(`${currentOutputName}提示词已保存`);
+    } catch {
+      toast.error('提示词保存失败');
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
+  const restoreDefaultPrompt = async () => {
+    const defaultPrompt = DEFAULT_REPORT_PROMPTS[currentPromptKey];
+    setCurrentPrompt(defaultPrompt);
+    setSavingPrompt(true);
+    try {
+      await api.settings.set(`${REPORT_PROMPT_SETTING_PREFIX}${currentPromptKey}`, defaultPrompt);
+      toast.success(`已恢复${currentOutputName}默认提示词`);
+    } catch {
+      toast.error('恢复默认失败');
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
 
   /** v2.2: 选择日期后预加载素材统计 */
   const previewMaterials = async (s: string, e: string) => {
@@ -60,6 +201,7 @@ export function ReportPage() {
         template,
         start_date: startDate,
         end_date: endDate,
+        custom_prompt: currentPrompt,
       });
       setContent(report.content);
       setEditedContent(report.content);
@@ -145,7 +287,7 @@ export function ReportPage() {
         </Card.Header>
         <Card.Content>
           <div className="flex gap-3">
-            {(['日报', '周报', '月报'] as ReportType[]).map((t) => (
+            {REPORT_TYPES.map((t) => (
               <Button
                 key={t}
                 variant={reportType === t ? 'success' : 'secondary'}
@@ -187,7 +329,38 @@ export function ReportPage() {
         </Card.Content>
       </Card>
 
-      {/* Section 3: 日期范围 */}
+       {/* Section 3: 当前生成方案的提示词 */}
+      <Card className="p-5">
+        <Card.Header>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Card.Title className="flex items-center gap-2"><SlidersHorizontal size={17} /> 编辑{currentOutputName}提示词</Card.Title>
+              <p className="text-xs text-gray-400 mt-1">每个复盘方案各自保存。可调整结构、重点和语气；素材范围与事实校验仍会保留。</p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="secondary" size="sm" icon={RotateCcw} disabled={savingPrompt || !promptsLoaded} onClick={restoreDefaultPrompt}>
+                恢复默认
+              </Button>
+              <Button variant="success" size="sm" icon={Save} loading={savingPrompt} disabled={!promptsLoaded} onClick={savePrompt}>
+                保存提示词
+              </Button>
+            </div>
+          </div>
+        </Card.Header>
+        <Card.Content>
+          <textarea
+            value={currentPrompt}
+            disabled={!promptsLoaded}
+            onChange={(event) => setCurrentPrompt(event.target.value)}
+            maxLength={6000}
+            className="w-full min-h-[220px] px-3 py-2 border border-gray-300 rounded-lg text-sm leading-6 resize-y disabled:bg-gray-50 disabled:text-gray-400"
+            aria-label={`${currentOutputName}提示词`}
+          />
+          <p className="mt-2 text-xs text-gray-400">未保存的修改也会用于本次生成；保存后会作为此复盘方案的默认提示词。</p>
+        </Card.Content>
+      </Card>
+
+      {/* Section 4: 日期范围 */}
       <Card className="p-5">
         <Card.Header>
           <Card.Title>日期范围</Card.Title>
@@ -205,7 +378,7 @@ export function ReportPage() {
         </Card.Content>
       </Card>
 
-      {/* Section 4: 素材预览 */}
+      {/* Section 5: 素材预览 */}
       <Card className="p-5">
         <Card.Header>
           <Card.Title>素材预览</Card.Title>
@@ -242,7 +415,7 @@ export function ReportPage() {
         </Card.Content>
       </Card>
 
-      {/* Section 5: 生成按钮 */}
+      {/* Section 6: 生成按钮 */}
       <div className="text-center">
         <Button
           variant="primary"
@@ -262,7 +435,7 @@ export function ReportPage() {
         </div>
       )}
 
-      {/* Section 6: 生成结果 */}
+      {/* Section 7: 生成结果 */}
       {content && !generating && (
         <Card>
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl">

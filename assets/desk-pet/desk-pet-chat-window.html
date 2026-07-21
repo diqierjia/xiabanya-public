@@ -567,6 +567,42 @@
   <script>
     const hostWindow = window.xiabanyaApi && window.xiabanyaApi.deskPetWindow;
     const chatApi = window.xiabanyaApi && window.xiabanyaApi.chat;
+    const settingsApi = window.xiabanyaApi && window.xiabanyaApi.settings;
+    let english = false;
+    const labels = {
+      title: () => english ? 'Xiabanya' : '下班鸭',
+      close: () => english ? 'Close chat' : '关闭对话',
+      screenQuestion: () => english ? 'Ask about screen' : '看图问鸭',
+      quickActions: () => english ? 'Quick actions' : '快捷动作',
+      send: () => english ? 'Send' : '发送',
+      retry: () => english ? 'Retry' : '重试',
+      me: () => english ? 'Me' : '我',
+      thinking: () => english ? 'Duck is thinking…' : '小黄鸭在想…',
+      typing: () => english ? 'Typing…' : '对方正在输入…',
+      queued: () => english ? 'Waiting for Duck to reply' : '等待小黄鸭回复',
+      replyUnavailable: () => english ? 'Duck could not reply right now.' : '下班鸭暂时没能回复。',
+      capture: () => english ? 'Capturing desktop…' : '正在截取桌面…',
+      looking: () => english ? 'Looking at the screen…' : '正在看图…',
+    };
+    async function applyLanguage() {
+      english = await settingsApi?.get('language', 'zh-CN') === 'en-US';
+      document.documentElement.lang = english ? 'en-US' : 'zh-CN';
+      document.querySelector('.chat-panel').setAttribute('aria-label', english ? 'Xiabanya chat' : '下班鸭对话');
+      document.querySelector('.chat-title').textContent = labels.title();
+      document.querySelector('.chat-close').setAttribute('aria-label', labels.close());
+      document.querySelector('.screen-question-shortcut').textContent = labels.screenQuestion();
+      document.querySelector('.quick-actions-toggle').setAttribute('aria-label', labels.quickActions());
+      document.querySelector('.send-button').textContent = labels.send();
+      if (english) {
+        const prompts = document.querySelectorAll('.quick-actions button');
+        [['What did I mainly do today?', 'What I did today'], ['Remind me to wrap up before I leave', 'Wrap-up reminder'], ['Gently remind me if I scroll for too long', 'Too much scrolling'], ['Please do not disturb me', 'Do not disturb']].forEach(([prompt, label], index) => {
+          prompts[index].dataset.prompt = prompt;
+          prompts[index].textContent = label;
+        });
+      }
+    }
+    window.applyDeskPetChatLanguage = applyLanguage;
+    void applyLanguage();
     const closeChatButton = document.querySelector('.chat-close');
     const messagesEl = document.querySelector('.messages');
     const chatForm = document.querySelector('.chat-form');
@@ -635,7 +671,7 @@
           const avatar = document.createElement('img');
           avatar.className = 'message-avatar';
           avatar.src = assistantAvatarSrc;
-          avatar.alt = '下班鸭';
+          avatar.alt = labels.title();
           avatar.draggable = false;
 
           const bubble = document.createElement('div');
@@ -658,9 +694,9 @@
           const label = document.createElement('span');
           label.className = 'thinking-text';
           const elapsedSuffix = Number.isFinite(message.elapsedSeconds)
-            ? ` · 已等待 ${message.elapsedSeconds} 秒`
+            ? (english ? ` · waiting ${message.elapsedSeconds}s` : ` · 已等待 ${message.elapsedSeconds} 秒`)
             : '';
-          label.textContent = `${message.status || '对方正在输入…'}${elapsedSuffix}`;
+          label.textContent = `${message.status || labels.typing()}${elapsedSuffix}`;
 
           toggle.appendChild(caret);
           toggle.appendChild(label);
@@ -696,7 +732,7 @@
           const avatar = document.createElement('img');
           avatar.className = 'message-avatar';
           avatar.src = assistantAvatarSrc;
-          avatar.alt = '下班鸭';
+          avatar.alt = labels.title();
           avatar.draggable = false;
 
           const stack = document.createElement('div');
@@ -707,7 +743,7 @@
             const retryButton = document.createElement('button');
             retryButton.type = 'button';
             retryButton.className = 'retry-button';
-            retryButton.textContent = '重试';
+            retryButton.textContent = labels.retry();
             retryButton.disabled = !!activeStreamId;
             retryButton.addEventListener('click', () => {
               const retryContent = message.retryContent;
@@ -729,7 +765,7 @@
           if (message.queued) {
             const state = document.createElement('span');
             state.className = 'message-queue-state';
-            state.textContent = '等待小黄鸭回复';
+            state.textContent = labels.queued();
             bubble.appendChild(state);
           }
           const row = document.createElement('div');
@@ -737,7 +773,7 @@
           const avatar = document.createElement('img');
           avatar.className = 'message-avatar user-avatar';
           avatar.src = './user-avatar-daniel-wu.png';
-          avatar.alt = '我';
+          avatar.alt = labels.me();
           avatar.draggable = false;
           row.appendChild(bubble);
           row.appendChild(avatar);
@@ -923,7 +959,7 @@
 
       if (!mirrored) {
         if (event.type === 'error') {
-          messages.push({ role: 'error', content: event.content || '下班鸭暂时没能回复。' });
+          messages.push({ role: 'error', content: event.content || labels.replyUnavailable() });
           renderMessages();
         }
         return;
@@ -934,7 +970,7 @@
       } else if (event.type === 'error') {
         const index = messages.indexOf(current.message);
         if (index >= 0) messages.splice(index, 1);
-        messages.push({ role: 'error', content: event.content || '下班鸭暂时没能回复。' });
+        messages.push({ role: 'error', content: event.content || labels.replyUnavailable() });
       } else if (event.type === 'cancel') {
         const index = messages.indexOf(current.message);
         if (index >= 0) messages.splice(index, 1);
@@ -945,10 +981,10 @@
 
     function setSending(next) {
       sendButton.disabled = false;
-      sendButton.textContent = '发送';
+      sendButton.textContent = labels.send();
       sendButton.title = next
-        ? (pendingUserMessages.length ? `已有 ${pendingUserMessages.length} 条消息排队中，仍可继续发送` : '下班鸭正在回复，仍可继续发送')
-        : '发送消息';
+        ? (pendingUserMessages.length ? (english ? `${pendingUserMessages.length} message(s) queued; you can keep sending` : `已有 ${pendingUserMessages.length} 条消息排队中，仍可继续发送`) : (english ? 'Duck is replying; you can keep sending' : '下班鸭正在回复，仍可继续发送'))
+        : (english ? 'Send message' : '发送消息');
     }
 
     function makeStreamId() {
@@ -977,7 +1013,7 @@
 
     function addThinkingBubble() {
       removeThinkingBubble();
-      const thinkingMsg = { role: 'thinking', content: '', status: '小黄鸭在想…', expanded: false, pending: true };
+      const thinkingMsg = { role: 'thinking', content: '', status: labels.thinking(), expanded: false, pending: true };
       messages.push(thinkingMsg);
       activeThinkingBubble = thinkingMsg;
     }
@@ -1100,7 +1136,7 @@
         }
         messages.push({
           role: 'error',
-          content: error && error.message ? error.message : '下班鸭暂时没能回复。',
+          content: error && error.message ? error.message : labels.replyUnavailable(),
           retryContent: text,
         });
         activeAssistantMessage = null;
@@ -1158,7 +1194,7 @@
         };
         pendingScreenQuestions.set(id, message);
         pendingUserMessages.push(message);
-        messages.push(message, { role: 'thinking', status: '正在看图…', pending: true, screenQuestionId: id });
+        messages.push(message, { role: 'thinking', status: labels.looking(), pending: true, screenQuestionId: id });
         setSending(true);
         renderMessages({ forceScrollToBottom: true });
         return;
@@ -1188,7 +1224,7 @@
     async function startScreenQuestion() {
       if (!hostWindow || !hostWindow.startScreenQuestion || screenQuestionButton.disabled) return;
       screenQuestionButton.disabled = true;
-      screenQuestionButton.textContent = '正在截取桌面…';
+      screenQuestionButton.textContent = labels.capture();
       try {
         await hostWindow.startScreenQuestion();
       } catch (error) {
@@ -1196,7 +1232,7 @@
         renderMessages({ forceScrollToBottom: true });
       } finally {
         screenQuestionButton.disabled = false;
-        screenQuestionButton.textContent = '看图问鸭';
+        screenQuestionButton.textContent = labels.screenQuestion();
       }
     }
 

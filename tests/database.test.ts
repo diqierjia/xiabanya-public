@@ -363,6 +363,22 @@ describe('DatabaseService', () => {
       expect(record!.category).toBe('代码开发');
       expect(record!.title).toBe('Test'); // unchanged
     });
+
+    it('renames categories in existing records and vision results together', () => {
+      const recordId = service.createRecord({
+        title: 'Old category', category: '代码开发', app: '', window_title: '',
+        start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: '',
+      });
+      const visionId = service.addVisionResult({
+        record_id: recordId, title: 'Vision category', category: '代码开发', summary: '', raw_response: '', app: '', window_title: '', model: 'test',
+      });
+
+      service.saveManagedCategories(['编程', '其他'], [{ from: '代码开发', to: '编程' }]);
+
+      expect(service.getRecord(recordId)?.category).toBe('编程');
+      expect(service.listVisionResults(10).find((result) => result.id === visionId)?.category).toBe('编程');
+      expect(service.getSetting('managed_categories')).toBe(JSON.stringify(['编程', '其他']));
+    });
   });
 
   // ===== Records: deleteRecord =====
@@ -751,37 +767,83 @@ describe('DatabaseService', () => {
   });
 
   describe('chat memory retrieval', () => {
-    it('compacts the oldest eight turns at 25, then advances in eight-turn batches', () => {
-      for (let turn = 1; turn <= 25; turn += 1) {
+    it('records realtime extraction sources once and exposes only completed event sources to compaction', () => {
+      expect(service.claimRealtimeMemoryExtraction('u-safety-1', 'safety')).toBe(true);
+      expect(service.claimRealtimeMemoryExtraction('u-safety-1', 'safety')).toBe(false);
+      expect(service.listRealtimeExtractedMessageIds(['u-safety-1'])).toEqual([]);
+
+      const [eventId] = service.createMemoryEvents([{
+        title: '花生过敏', summary: '用户明确表示对花生过敏。', criticality: 'safety', confidence: 0.95,
+      }], ['u-safety-1'], 1, '我对花生过敏。');
+      service.finishRealtimeMemoryExtraction('u-safety-1', [eventId]);
+
+      expect(service.listRealtimeExtractedMessageIds(['u-safety-1', 'u-other'])).toEqual(['u-safety-1']);
+      expect(service.listMemoryEvents()[0]).toMatchObject({ id: eventId, criticality: 'safety' });
+    });
+
+    it('keeps the latest 12 complete turns raw and compacts the earliest four turns', () => {
+      for (let turn = 1; turn <= 16; turn += 1) {
         service.addChatMessage({ id: `u-${turn}`, role: 'user', content: `问题 ${turn}` });
         service.addChatMessage({ id: `a-${turn}`, role: 'assistant', content: `回答 ${turn}` });
         service.advanceMemoryTurn();
       }
 
       const firstBatch = service.claimNextChatCompactionBatch();
-      expect(firstBatch).toMatchObject({ startTurn: 1, endTurn: 8 });
+      expect(firstBatch).toMatchObject({ startTurn: 1, endTurn: 4 });
       expect(firstBatch?.messages.map((message) => message.id)).toEqual([
         'u-1', 'a-1', 'u-2', 'a-2', 'u-3', 'a-3', 'u-4', 'a-4',
-        'u-5', 'a-5', 'u-6', 'a-6', 'u-7', 'a-7', 'u-8', 'a-8',
       ]);
-      expect(service.getPendingChatCompactionMessages()).toHaveLength(16);
+      expect(service.getPendingChatCompactionMessages()).toHaveLength(8);
 
       service.completeChatCompaction(firstBatch!.id, {
         conversationSummary: '用户正在讨论会话整理规则，后续需要保留最近原文与摘要的衔接。',
-        events: [{ title: '确定会话整理节奏', summary: '第 25 轮开始每批整理最早 8 轮。', confidence: 0.9 }],
-        elements: [{ name: '会话整理', type: 'concept', scope: 'project', state: '按 25 轮窗口和 8 轮批次执行' }],
+        events: [{ title: '确定会话整理节奏', summary: '始终保留最近 12 轮原文，每批整理最早 4 轮。', confidence: 0.9 }],
+        elements: [{ name: '会话整理', type: 'concept', scope: 'project', state: '按保留 12 轮原文和每批 4 轮执行' }],
       });
       expect(service.getChatWorkingSummary()).toContain('会话整理规则');
       expect(service.getPendingChatCompactionMessages()).toEqual([]);
       expect(service.listMemoryEvents()).toHaveLength(1);
-      expect(service.listMemoryElements().find((item) => item.name === '会话整理')?.current_state).toContain('25 轮窗口');
+      expect(service.listMemoryElements().find((item) => item.name === '会话整理')?.current_state).toContain('保留 12 轮');
 
-      for (let turn = 26; turn <= 33; turn += 1) {
+      for (let turn = 17; turn <= 20; turn += 1) {
         service.addChatMessage({ id: `u-${turn}`, role: 'user', content: `问题 ${turn}` });
         service.addChatMessage({ id: `a-${turn}`, role: 'assistant', content: `回答 ${turn}` });
         service.advanceMemoryTurn();
       }
-      expect(service.claimNextChatCompactionBatch()).toMatchObject({ startTurn: 9, endTurn: 16 });
+      expect(service.claimNextChatCompactionBatch()).toMatchObject({ startTurn: 5, endTurn: 8 });
+    });
+
+    it('releases stale processing batches and limits automatic retries before allowing a manual retry', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-17T01:00:00.000Z'));
+      for (let turn = 1; turn <= 16; turn += 1) {
+        service.addChatMessage({ id: `stale-u-${turn}`, role: 'user', content: `问题 ${turn}` });
+        service.addChatMessage({ id: `stale-a-${turn}`, role: 'assistant', content: `回答 ${turn}` });
+        service.advanceMemoryTurn();
+      }
+
+      const first = service.claimNextChatCompactionBatch();
+      expect(first).toMatchObject({ startTurn: 1, endTurn: 4 });
+      vi.setSystemTime(new Date('2026-07-17T01:10:01.000Z'));
+      expect(service.recoverStaleChatCompactions()).toBe(1);
+      expect(service.getChatMemoryRuntimeDebug().compactions[0]).toMatchObject({ status: 'pending', attempt_count: 1 });
+
+      let batch = service.claimNextChatCompactionBatch();
+      expect(batch).toBeDefined();
+      for (let attempt = 2; attempt <= 4; attempt += 1) {
+        const retry = service.failChatCompaction(batch!.id, new Error(`失败 ${attempt}`));
+        if (attempt < 4) {
+          expect(retry.terminal).toBe(false);
+          vi.setSystemTime(new Date(retry.nextRetryAt!));
+          batch = service.claimNextChatCompactionBatch();
+          expect(batch).toBeDefined();
+        } else {
+          expect(retry.terminal).toBe(true);
+        }
+      }
+      expect(service.getChatMemoryRuntimeDebug().compactions[0]).toMatchObject({ status: 'failed', attempt_count: 4 });
+      expect(service.retryChatCompaction(first!.id)).toBe(true);
+      expect(service.claimNextChatCompactionBatch()).toBeDefined();
     });
 
     it('persists tool-call debug records with parameters, results, and adoption outcome', () => {
@@ -836,19 +898,16 @@ describe('DatabaseService', () => {
       });
     });
 
-    it('defers default event-card injection while a source chat message is still short-term context', () => {
+    it('keeps an event immediately retrievable even while its source chat is still recent', () => {
       const [eventId] = service.createMemoryEvents([{
         title: '确定记忆交接规则',
-        summary: '原始对话在短期上下文时不重复注入事件卡。',
-        narrative: '事件卡在原始对话滑出最近 25 轮后接手连续记忆。',
+        summary: '原始对话和事件卡可以同时进入聊天上下文。',
+        narrative: '事件卡与最近 12 轮原始对话可以同时参与连续记忆。',
         tags: ['记忆', '短期上下文'],
         confidence: 0.9,
       }], ['message-user-1', 'message-assistant-1'], 1, '事件卡先不要重复注入');
 
       expect(service.findMemoryEventsForChat('记忆交接')).toHaveLength(1);
-      expect(service.findMemoryEventsForChat('记忆交接', 6, {
-        excludeSourceRefs: ['message-user-1', 'message-assistant-1'],
-      })).toEqual([]);
       expect(service.getMemoryEvent(eventId)).toBeDefined();
     });
 
@@ -943,6 +1002,26 @@ describe('DatabaseService', () => {
       expect(exported.exported_at).toBeDefined();
     });
 
+    it('exports records and overlapping reports for a selected date range', () => {
+      service.createRecord({
+        title: 'In range', category: '代码开发', app: '', window_title: '',
+        start_at: '2026-06-25 09:00:00', end_at: '2026-06-25 10:00:00', notes: '',
+      });
+      service.createRecord({
+        title: 'Out of range', category: '代码开发', app: '', window_title: '',
+        start_at: '2026-06-26 09:00:00', end_at: '2026-06-26 10:00:00', notes: '',
+      });
+      service.createReport({ report_type: '日报', template: '日报', start_date: '2026-06-25', end_date: '2026-06-25', content: '当天报告' });
+      service.createReport({ report_type: '周报', template: '周报', start_date: '2026-06-23', end_date: '2026-06-26', content: '跨天报告' });
+      service.createReport({ report_type: '日报', template: '日报', start_date: '2026-06-26', end_date: '2026-06-26', content: '次日报告' });
+
+      const exported = service.exportAll({ start: '2026-06-25', end: '2026-06-25' });
+      expect(exported.range).toEqual({ start: '2026-06-25', end: '2026-06-25' });
+      expect(exported.records.map((record) => record.title)).toEqual(['In range']);
+      expect(exported.reports.map((report) => report.content)).toEqual(expect.arrayContaining(['当天报告', '跨天报告']));
+      expect(exported.reports).toHaveLength(2);
+    });
+
     it('importAll imports records with correct count', () => {
       const importedCount = service.importAll({
         records: [
@@ -963,6 +1042,18 @@ describe('DatabaseService', () => {
         ],
       });
       expect(importedCount).toBe(1);
+    });
+
+    it('importAll restores reports from an export payload', () => {
+      const importedCount = service.importAll({
+        records: [],
+        reports: [{
+          id: 'imp-report-1', report_type: '日报', template: '工作日报',
+          start_date: '2026-06-25', end_date: '2026-06-25', content: '已导入报告', created_at: '2026-06-25 18:00:00',
+        }],
+      });
+      expect(importedCount).toBe(1);
+      expect(service.getReport('imp-report-1')?.content).toBe('已导入报告');
     });
 
     it('importAll skips records with missing start_at/end_at', () => {

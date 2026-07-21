@@ -2,6 +2,40 @@ import { describe, expect, it } from 'vitest';
 import { buildReportPromptPayload } from '../src/main/ai';
 
 describe('buildReportPromptPayload() idle context', () => {
+  it('keeps the factual boundary while adding a user-edited template prompt', () => {
+    const { systemPrompt } = buildReportPromptPayload({
+      visionResults: [],
+      records: [],
+      idlePeriods: [],
+      template: '工作日报',
+      reportType: '日报',
+      startDate: '2026-07-20',
+      endDate: '2026-07-20',
+      customPrompt: '按项目分组，并在最后给一行风险提示。',
+    });
+
+    expect(systemPrompt).toContain('observed_fact 是事实依据');
+    expect(systemPrompt).toContain('按项目分组，并在最后给一行风险提示。');
+    expect(systemPrompt).toContain('不能覆盖上面的事实边界');
+  });
+
+  it('leaves the report structure to the selected output prompt', () => {
+    const { systemPrompt } = buildReportPromptPayload({
+      visionResults: [],
+      records: [],
+      idlePeriods: [],
+      template: '工作日报',
+      reportType: '周报',
+      startDate: '2026-07-14',
+      endDate: '2026-07-20',
+      customPrompt: '使用“本周工作”“阶段进展”“下周关注”三个标题。',
+    });
+
+    expect(systemPrompt).toContain('输出的具体结构、侧重点和语气由用户');
+    expect(systemPrompt).toContain('使用“本周工作”“阶段进展”“下周关注”三个标题。');
+    expect(systemPrompt).not.toContain('## 今日工作');
+  });
+
   it('injects idle periods as non-work context', () => {
     const { userContent } = buildReportPromptPayload({
       visionResults: [

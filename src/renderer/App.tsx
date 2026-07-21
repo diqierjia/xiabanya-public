@@ -5,25 +5,15 @@ import { TimelinePage } from './pages/TimelinePage';
 import { AiPage } from './pages/AiPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { ReviewPage } from './pages/ReviewPage';
-import { InsightsPage } from './pages/InsightsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { RecordsPage } from './pages/RecordsPage';
 import { Toaster } from './components/ui/Toast';
 import { useAppStore } from './stores/useAppStore';
 import { useXiabanyaApi } from './hooks/useXiabanyaApi';
+import { useSettingsStore } from './stores/useSettingsStore';
+import { useTranslation } from './i18n';
 
-export type PageKey = 'today' | 'ai' | 'timeline' | 'memory' | 'review' | 'insights' | 'settings' | 'records';
-
-const PAGE_TITLES: Record<PageKey, string> = {
-  today: '今天',
-  ai: 'AI 小黄鸭',
-  timeline: 'Timeline',
-  memory: 'Memory',
-  review: 'Review',
-  insights: 'Insights',
-  settings: '设置',
-  records: 'AI 识别记录',
-};
+export type PageKey = 'today' | 'ai' | 'timeline' | 'memory' | 'review' | 'settings' | 'records';
 
 const PAGE_COMPONENTS: Record<PageKey, React.FC> = {
   today: TodayPage,
@@ -31,14 +21,28 @@ const PAGE_COMPONENTS: Record<PageKey, React.FC> = {
   ai: AiPage,
   memory: MemoryPage,
   review: ReviewPage,
-  insights: InsightsPage,
   settings: SettingsPage,
   records: RecordsPage,
 };
 
 export function App() {
   const { currentPage, setPage, setTrackerRunning, setVisionAutoRunning } = useAppStore();
+  const fetchSettings = useSettingsStore((state) => state.fetchSettings);
+  const { language, t } = useTranslation();
   const api = useXiabanyaApi();
+
+  const pageTitles: Record<PageKey, string> = {
+    today: t('today'), ai: t('ai'), timeline: t('timeline'), memory: t('memory'),
+    review: t('review'), settings: t('settings'), records: t('records'),
+  };
+
+  useEffect(() => {
+    void fetchSettings();
+  }, [fetchSettings]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   // v2.2: 初始化时同步 tracker + vision auto 状态
   useEffect(() => {
@@ -69,7 +73,7 @@ export function App() {
       <Sidebar currentPage={currentPage} onNavigate={setPage} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-14 border-b border-gray-200 bg-white flex items-center px-6 shrink-0">
-          <h1 className="text-lg font-semibold text-gray-800">{PAGE_TITLES[currentPage]}</h1>
+          <h1 className="text-lg font-semibold text-gray-800">{pageTitles[currentPage]}</h1>
         </header>
         <main className="flex-1 overflow-auto p-6 animate-fade-in" key={currentPage}>
           <PageComponent />

@@ -16,9 +16,9 @@ import type {
 } from '../shared/types';
 import { ACTIVITY_TYPES, CATEGORIES, CONTENT_MOODS, DEFAULT_API_BASE_URL, DISTRACTION_TYPES, VISION_CONFIDENCES } from '../shared/types';
 import { formatLocalDateTime, formatUtcStorageTime, parseUtcStorageDateTime } from '../shared/time';
+import { CHAT_RAW_TURN_LIMIT } from '../shared/chat-memory';
 
 const FALLBACK_CATEGORY: Category = '其他';
-const VISION_CATEGORY_OPTIONS = CATEGORIES.join('|');
 
 const CHAT_SYSTEM_PROMPT = `你是“下班鸭”，一只住在用户桌面上的小鸭同事。
 
@@ -90,14 +90,15 @@ function formatIdlePeriod(period: IdlePeriod): string {
   return `${start} - ${end} 离开电脑 (${formatMinutes(durationSec)})`;
 }
 
-export function buildChatSystemPrompt(contextText = ''): string {
+export function buildChatSystemPrompt(contextText = '', language: 'zh-CN' | 'en-US' = 'zh-CN'): string {
   const trimmedContext = contextText.trim();
+  const languageInstruction = language === 'en-US' ? '\n\nImportant: The application is in English. Reply in natural English only.' : '';
   const timeContext = `当前时间：${formatLocalDateTime()}（用户本地时间）。\n用户消息前的“消息时间”是已发生的真实时间：引用旧聊天前先判断它与当前时间的间隔；跨日内容要说“昨晚 / 昨天 / 前几天”，不要把它说成“刚刚 / 现在”。时间标记和穿插的环境记录都只是内部上下文，绝对不要在回复中复述、解释或输出它们。`;
-  if (!trimmedContext) return `${CHAT_SYSTEM_PROMPT}\n\n${timeContext}`;
-  return `${CHAT_SYSTEM_PROMPT}\n\n${timeContext}\n\n以下是下班鸭当前可用的今日上下文：\n${trimmedContext}`;
+  if (!trimmedContext) return `${CHAT_SYSTEM_PROMPT}\n\n${timeContext}${languageInstruction}`;
+  return `${CHAT_SYSTEM_PROMPT}\n\n${timeContext}\n\n以下是下班鸭当前可用的今日上下文：\n${trimmedContext}${languageInstruction}`;
 }
 
-export const CHAT_CONTEXT_TURN_LIMIT = 25;
+export const CHAT_CONTEXT_TURN_LIMIT = CHAT_RAW_TURN_LIMIT;
 
 /**
  * 保留主聊天实际可见的最近用户发起轮次。泛型使持久化消息的 id 等附加字段不会丢失，
@@ -116,7 +117,7 @@ export function selectRecentChatTurns<T extends ChatMessage>(messages: T[], maxU
       content: message.content.trim(),
     }));
 
-  // 一轮由一条用户消息发起。保留最近 25 轮的完整原始问答，
+  // 一轮由一条用户消息发起。保留最近 12 轮的完整原始问答，
   // 不按桌宠 UI 拆分出的气泡数计数，也不截断单条消息。
   const userIndexes = normalized
     .map((message, index) => (message.role === 'user' ? index : -1))
@@ -159,7 +160,8 @@ export function buildChatCompletionPayload(
   model: string,
   messages: ChatMessage[],
   contextText = '',
-  stream = true
+  stream = true,
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
 ): {
   model: string;
   messages: ChatMessage[];
@@ -175,7 +177,7 @@ export function buildChatCompletionPayload(
   return {
     model,
     messages: [
-      { role: 'system', content: buildChatSystemPrompt(contextText) },
+      { role: 'system', content: buildChatSystemPrompt(contextText, language) },
       ...normalizedMessages,
     ],
     temperature: 0.85,
@@ -230,6 +232,40 @@ export const MEMORY_CHAT_TOOLS = [
         type: 'object',
         properties: { id: { type: 'string' }, level: { type: 'integer', minimum: 1, maximum: 3 } },
         required: ['id', 'level'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_vision_results',
+      description: '按用户本地日期范围查询历史 AI 截屏识别记录（Vision）。当用户问昨天、前天、某天或一段时间做了什么、看到了什么时调用。日期使用 YYYY-MM-DD；当前本地日期见系统提示。只返回已保存的识别事实与摘要，不要把它当成用户聊天记忆。',
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: { type: 'string', description: '起始本地日期，格式 YYYY-MM-DD' },
+          end_date: { type: 'string', description: '结束本地日期，格式 YYYY-MM-DD；单日查询与 start_date 相同' },
+          query: { type: 'string', description: '可选关键词，用于筛选标题、摘要、观察事实、应用或窗口标题' },
+          limit: { type: 'integer', minimum: 1, maximum: 40, description: '最多返回多少条，默认 20' },
+        },
+        required: ['start_date', 'end_date'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_records',
+      description: '按用户本地日期范围查询历史窗口追踪 records。当用户问昨天、前天、某天或一段时间使用过哪些应用、窗口或活动记录时调用。日期使用 YYYY-MM-DD；当前本地日期见系统提示。records 是原始辅助证据，和 Vision 识别结果是不同来源。',
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: { type: 'string', description: '起始本地日期，格式 YYYY-MM-DD' },
+          end_date: { type: 'string', description: '结束本地日期，格式 YYYY-MM-DD；单日查询与 start_date 相同' },
+          query: { type: 'string', description: '可选关键词，用于筛选标题、应用、窗口标题、分类或备注' },
+          limit: { type: 'integer', minimum: 1, maximum: 40, description: '最多返回多少条，默认 20' },
+        },
+        required: ['start_date', 'end_date'],
       },
     },
   },
@@ -297,9 +333,12 @@ export async function requestChatCompactionToolCalls(
   toolTranscript: Array<Record<string, unknown>> = []
 ): Promise<MemoryToolPlanningResult> {
   const tools = MEMORY_CHAT_TOOLS.filter((tool) => COMPACTION_TOOL_NAMES.has(tool.function.name));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
   try {
     const response = await fetch(chatCompletionsUrl(apiBaseUrl), {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model,
@@ -333,6 +372,8 @@ export async function requestChatCompactionToolCalls(
     return { supported: true, calls };
   } catch {
     return { supported: false, calls: [] };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -413,6 +454,24 @@ export async function requestMemoryChatTurn(
     if (allowTools) {
       requestBody.tools = tools;
       requestBody.tool_choice = 'auto';
+    } else {
+      requestBody.response_format = {
+        type: 'json_schema',
+        json_schema: {
+          name: 'memory_chat_final_reply',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              reply: { type: 'string' },
+              used_event_ids: { type: 'array', items: { type: 'string' } },
+              used_element_ids: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['reply', 'used_event_ids', 'used_element_ids'],
+          },
+        },
+      };
     }
     const response = await fetch(chatCompletionsUrl(apiBaseUrl), {
       method: 'POST',
@@ -520,7 +579,8 @@ export async function streamChatCompletion(
   onDelta: (delta: Omit<ChatStreamDeltaEvent, 'streamId'>) => void,
   signal?: AbortSignal,
   apiBaseUrl?: string,
-  timeoutOverrides: ChatStreamTimeouts = {}
+  timeoutOverrides: ChatStreamTimeouts = {},
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
 ): Promise<void> {
   const timeouts = {
     totalMs: normalizeTimeout(timeoutOverrides.totalMs, DEFAULT_CHAT_STREAM_TIMEOUTS.totalMs),
@@ -568,7 +628,7 @@ export async function streamChatCompletion(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(buildChatCompletionPayload(model, messages, contextText, true)),
+      body: JSON.stringify(buildChatCompletionPayload(model, messages, contextText, true, language)),
     });
 
     if (!response.ok) {
@@ -647,11 +707,48 @@ export interface ChatMemoryCompactionResult {
   }>;
 }
 
-const CHAT_MEMORY_COMPACTION_PROMPT = `你是下班鸭的会话整理器。把一段即将移出主聊天原文窗口的真实聊天，整理成可持续使用的会话摘要；并且只在确有长期价值时，提出事件卡和元素卡更新。
+export interface RealtimeMemoryExtractionResult {
+  event: {
+    title: string;
+    summary: string;
+    narrative?: string;
+    tags?: string[];
+    scope?: 'project' | 'user';
+  } | null;
+}
+
+const REALTIME_MEMORY_EXTRACTION_PROMPT = `你是下班鸭的实时高价值记忆提取器。只处理下面一条用户原话，不要参考助手回复或补全上下文。
+
+只有在原话明确、直接地陈述“用户本人”当前有效的安全事实或身份/背景事实时才建卡。提问、假设、转述他人、泛泛讨论、尚未确认的症状或疾病，一律不建卡。不得推断原话没有说出的内容；summary 和 narrative 要忠实保留原意，不要使用引号以外的虚构细节。
+
+返回严格 JSON，不要 Markdown：
+{"event":null}
+或
+{"event":{"title":"不超过30字","summary":"不超过100字","narrative":"不超过300字","tags":["最多8个标签"],"scope":"user|project"}}`;
+
+const CHAT_MEMORY_COMPACTION_PROMPT = `你是下班鸭的会话整理器。把一段即将移出主聊天原文窗口的真实聊天，整理成可持续使用的会话摘要；并积极提取有长期价值的事件卡和元素卡。
 
 conversation_summary 必填：它会替代这段原文进入主模型上下文。保留仍在进行的话题、明确决定、待办、约束、纠正和必要背景；不要写助手的臆测。原文的消息时间是事实，凡是活动、承诺、情绪或对话发生时机有意义时，摘要必须保留绝对日期或“某日晚间”这一类明确时点，绝不能把过去的事改写成“现在”。即使整段只是闲聊，也写明“本段为闲聊，无待续事项”。长度不超过 600 字。
 
-events 和 elements 都是可选的长期沉淀：普通闲聊、临时情绪、假设、模型建议、没有新事实的问答，一律不要写入。事件只记录具体经历、明确决定、明确纠正、稳定偏好或可靠背景。元素只记录跨事件有持续意义的人、项目、工具、概念等；state 只写本段有证据支持的当前状态。不要从截图、日报或助手臆测中创造用户事实。
+events 和 elements 是长期沉淀。
+
+应当写入事件卡的情况（满足任一即写）：
+- 具体经历或事件（做了什么、发生了什么）
+- 明确决定或选择（选了 A 不选 B）
+- 用户提及的具体人、项目、工具、地点（哪怕只提一次）
+- 偏好信号（用户表达喜欢、不喜欢、习惯、风格，哪怕单次）
+- 情绪事件（明显的挫败、兴奋、焦虑等，附上下文）
+- 对旧记忆的纠正或补充
+- 稳定背景事实（身份、角色、环境）
+
+不写入的情况（仅这些不写）：
+- 纯粹的寒暄、语气词、无信息量的应答
+- 助手的臆测或推断（不能创造用户没亲口说的事实）
+- 仅来自截图或日报的内容；不得仅凭截图或日报内容创造用户事实。但用户在聊天中对其作出的确认、否认、解释、感受或决定，可以写入。
+
+宁可多写一张后续会自然衰减的卡，也不要漏掉一条用户可能在意的事实。漏写的代价高于多写：多写的会被遗忘曲线自然降低默认召回权重，漏写的永远没了。遗忘不是删除；identity、safety 和明确稳定的 preference 会保留较高的权重下限与直接检索能力。
+
+元素只记录跨事件有持续意义的人、项目、工具、概念等；state 只写本段有证据支持的当前状态。不要从截图、日报或助手臆测中创造用户事实。
 
 系统固定有“用户”和“下班鸭”两张特殊元素卡，每个聊天事件都会自动关联它们，绝不能创建同名副本，也不要在 events[].elements 中重复写它们。用户的偏好、习惯、约束写为顶层 elements 中 name="用户" 的 state；下班鸭已接受的提醒、能力或待办写为顶层 elements 中 name="下班鸭" 的 state。其他元素按实体名称输出，名称本身决定复用，不以 scope 区分实体。
 
@@ -680,6 +777,55 @@ function parseJsonObject(content: string): Record<string, unknown> | null {
   }
 }
 
+/** 关键词命中后的独立轻量提取；criticality 由调用方本地强制，不信任模型返回。 */
+export async function extractRealtimeMemoryEvent(
+  apiKey: string,
+  model: string,
+  userMessage: string,
+  apiBaseUrl?: string
+): Promise<RealtimeMemoryExtractionResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(chatCompletionsUrl(apiBaseUrl), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_tokens: 500,
+        stream: false,
+        messages: [
+          { role: 'system', content: REALTIME_MEMORY_EXTRACTION_PROMPT },
+          { role: 'user', content: `用户原话：\n${userMessage}` },
+        ],
+      }),
+    });
+    if (!response.ok) throw new Error(`Realtime memory extraction API error: ${response.status}`);
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    const parsed = typeof content === 'string' ? parseJsonObject(content) : null;
+    const rawEvent = parsed?.event;
+    if (!rawEvent || typeof rawEvent !== 'object' || Array.isArray(rawEvent)) return { event: null };
+    const event = rawEvent as Record<string, unknown>;
+    const title = typeof event.title === 'string' ? event.title.trim().slice(0, 80) : '';
+    const summary = typeof event.summary === 'string' ? event.summary.trim().slice(0, 300) : '';
+    if (!title || !summary) return { event: null };
+    return {
+      event: {
+        title,
+        summary,
+        narrative: typeof event.narrative === 'string' ? event.narrative.trim().slice(0, 1200) : undefined,
+        tags: Array.isArray(event.tags) ? event.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean).slice(0, 8) : [],
+        scope: event.scope === 'project' ? 'project' : 'user',
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function compactChatMemory(
   apiKey: string,
   model: string,
@@ -688,6 +834,7 @@ export async function compactChatMemory(
     messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; created_at?: string }>;
     retrievedMemoryIndex: string;
     retrievedDetails?: string;
+    realtimeExtractedMessageIds?: string[];
   },
   apiBaseUrl?: string
 ): Promise<ChatMemoryCompactionResult> {
@@ -707,7 +854,7 @@ export async function compactChatMemory(
           { role: 'system', content: CHAT_MEMORY_COMPACTION_PROMPT },
           {
             role: 'user',
-            content: `此前会话摘要（可能为空）：\n${params.previousSummary || '无'}\n\n本次待整理原文（每条都带真实发生时间）：\n${params.messages.map((message) => `[${message.id}] [${formatMessageTimeForModel(message.created_at) || '时间未知'}] ${message.role}: ${message.content}`).join('\n') || '无'}\n\n已有记忆 L0 索引（可能为空）：\n${params.retrievedMemoryIndex || '无'}\n\n按需读取结果（可能为空；仅可据此和原文写入）：\n${params.retrievedDetails || '无'}`,
+            content: `此前会话摘要（可能为空）：\n${params.previousSummary || '无'}\n\n本次待整理原文（每条都带真实发生时间）：\n${params.messages.map((message) => `[${message.id}] [${formatMessageTimeForModel(message.created_at) || '时间未知'}] ${message.role}: ${message.content}`).join('\n') || '无'}\n\n以下 user 消息已由实时通道建过事件卡：${params.realtimeExtractedMessageIds?.join(', ') || '无'}。这些消息仍须进入 conversation_summary，但绝不能再据此生成 events 或 elements。\n\n已有记忆 L0 索引（可能为空）：\n${params.retrievedMemoryIndex || '无'}\n\n按需读取结果（可能为空；仅可据此和原文写入）：\n${params.retrievedDetails || '无'}`,
           },
         ],
       }),
@@ -718,7 +865,7 @@ export async function compactChatMemory(
     const parsed = typeof content === 'string' ? parseJsonObject(content) : null;
     if (!parsed) throw new Error('Chat compaction did not return JSON');
     return {
-      conversation_summary: typeof parsed.conversation_summary === 'string' ? parsed.conversation_summary.trim().slice(0, 2000) : '',
+      conversation_summary: typeof parsed.conversation_summary === 'string' ? parsed.conversation_summary.trim().slice(0, 600) : '',
       events: Array.isArray(parsed.events) ? parsed.events.filter((event): event is ChatMemoryCompactionResult['events'][number] => !!event && typeof event === 'object') : [],
       elements: Array.isArray(parsed.elements) ? parsed.elements.filter((element): element is ChatMemoryCompactionResult['elements'][number] => !!element && typeof element === 'object') : [],
     };
@@ -752,7 +899,10 @@ export interface VisionPreviousSegmentContext {
   created_at: string;
 }
 
-const VISION_SYSTEM_PROMPT = `你是一个保守的屏幕活动识别器，用于帮助用户记录一天的电脑活动。
+function buildVisionSystemPrompt(categories: readonly string[], language: 'zh-CN' | 'en-US' = 'zh-CN'): string {
+  const categoryOptions = categories.join('|');
+  const outputLanguage = language === 'en-US' ? '\n\nThe application is in English. All free-text JSON fields must be in English. Category and enum values must remain exactly as specified.' : '';
+  return `你是一个保守的屏幕活动识别器，用于帮助用户记录一天的电脑活动。
 
 你的任务是根据截图、当前应用名、当前窗口标题，以及过去几分钟的窗口轨迹，生成一条结构化活动记录。
 
@@ -763,7 +913,9 @@ const VISION_SYSTEM_PROMPT = `你是一个保守的屏幕活动识别器，用�
 4. 严格返回纯 JSON，不要输出额外文字。
 
 必须返回的 JSON 字段：
-{"title":"10字以内短标题","category":"${VISION_CATEGORY_OPTIONS}","observed_fact":"截图中可直接看到的详细事实，40-100字","window_trace_summary":"过去几分钟窗口轨迹摘要，20-80字","possible_activity":"基于事实和窗口轨迹的保守推断，20-60字","confidence":"high|medium|low","activity_type":"work|personal|idle|unclear","segment_merge":{"should_merge":false,"confidence":"low","reason":"无上一段或不连续","current_activity":"当前截图代表的活动，20字以内","updated_segment_summary":"如果合并，给出合并后时间段摘要；否则等于当前活动"}}
+{"title":"10字以内短标题","category":"${categoryOptions}","observed_fact":"截图中可直接看到的详细事实，40-100字","window_trace_summary":"过去几分钟窗口轨迹摘要，20-80字","possible_activity":"基于事实和窗口轨迹的保守推断，20-60字","confidence":"high|medium|low","activity_type":"work|personal|idle|unclear","segment_merge":{"should_merge":false,"confidence":"low","reason":"无上一段或不连续","current_activity":"当前截图代表的活动，20字以内","updated_segment_summary":"如果合并，给出合并后时间段摘要；否则等于当前活动"}}
+
+category 必须严格从上面列出的分类中选择。少样本示例中的分类名只用于说明活动语义；若示例分类名不在允许列表中，绝不能照抄。
 
 可选字段（仅明显命中时输出，否则不输出该字段，不要输出 false、none、neutral、空 reason 或空 evidence）：
 - stuck_signal: 卡住/排错/失败/反复尝试同一问题。格式 {"is_stuck_like":true,"reason":"画面出现明确报错或失败信息","evidence":["failed","timeout"],"confidence":"high|medium"}
@@ -784,7 +936,8 @@ const VISION_SYSTEM_PROMPT = `你是一个保守的屏幕活动识别器，用�
 输出：{"title":"浏览搞笑内容","category":"休闲娱乐","observed_fact":"屏幕显示社交媒体或视频内容，画面可见搞笑标题、梗图、弹幕或明显幽默表达。","window_trace_summary":"窗口轨迹主要停留在社交媒体或视频内容页面。","possible_activity":"用户可能在浏览娱乐或搞笑内容。","confidence":"high","activity_type":"personal","segment_merge":{"should_merge":false,"confidence":"low","reason":"娱乐内容不与工作时间段合并","current_activity":"浏览搞笑内容","updated_segment_summary":"浏览搞笑内容"},"distraction_signal":{"is_distraction_like":true,"activity_type":"social","reason":"画面是娱乐社交内容","confidence":"medium"},"content_mood":{"mood":"humorous","reason":"画面有明显搞笑或梗图元素","confidence":"high"}}
 
 输入：只看到桌面壁纸、任务栏或没有明确活动内容。
-输出：{"title":"桌面空闲","category":"其他","observed_fact":"屏幕主要显示桌面或空白窗口，没有可识别的具体工作内容。","window_trace_summary":"窗口轨迹缺少稳定的具体活动线索。","possible_activity":"可能处于空闲、等待或刚切换窗口的状态。","confidence":"low","activity_type":"idle","segment_merge":{"should_merge":false,"confidence":"low","reason":"空闲或无明确活动内容，不合并","current_activity":"桌面空闲","updated_segment_summary":"桌面空闲"}}`;
+输出：{"title":"桌面空闲","category":"其他","observed_fact":"屏幕主要显示桌面或空白窗口，没有可识别的具体工作内容。","window_trace_summary":"窗口轨迹缺少稳定的具体活动线索。","possible_activity":"可能处于空闲、等待或刚切换窗口的状态。","confidence":"low","activity_type":"idle","segment_merge":{"should_merge":false,"confidence":"low","reason":"空闲或无明确活动内容，不合并","current_activity":"桌面空闲","updated_segment_summary":"桌面空闲"}}${outputLanguage}`;
+}
 
 function pickAllowed<T extends readonly string[]>(value: unknown, allowed: T, fallback: T[number]): T[number] {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value)
@@ -841,7 +994,7 @@ function normalizeSegmentMerge(raw: any, currentActivity: string): VisionSegment
   };
 }
 
-function normalizeVisionResult(raw: any, fallbackTitle: string): VisionAnalysisResult {
+function normalizeVisionResult(raw: any, fallbackTitle: string, categories: readonly string[] = CATEGORIES): VisionAnalysisResult {
   const observedFact = cleanText(raw?.observed_fact, raw?.summary || fallbackTitle, 160);
   const possibleActivity = cleanText(raw?.possible_activity, raw?.summary || observedFact, 120);
   const windowTraceSummary = cleanText(raw?.window_trace_summary, '', 120);
@@ -850,7 +1003,7 @@ function normalizeVisionResult(raw: any, fallbackTitle: string): VisionAnalysisR
     .join('\n');
   return {
     title: cleanText(raw?.title, fallbackTitle, 30) || fallbackTitle,
-    category: pickAllowed(raw?.category, CATEGORIES, FALLBACK_CATEGORY),
+    category: pickAllowed(raw?.category, categories, FALLBACK_CATEGORY),
     summary: summary || observedFact,
     observed_fact: observedFact,
     possible_activity: possibleActivity,
@@ -881,7 +1034,9 @@ export async function analyzeWithVision(
   windowTraceText: string,
   previousSegment?: VisionPreviousSegmentContext,
   signal?: AbortSignal,
-  apiBaseUrl?: string
+  apiBaseUrl?: string,
+  categories: readonly string[] = CATEGORIES,
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
 ): Promise<VisionAnalysisResult> {
   const fallbackTitle = `${app} - ${title}`.substring(0, 30);
   const response = await fetch(chatCompletionsUrl(apiBaseUrl), {
@@ -896,7 +1051,7 @@ export async function analyzeWithVision(
       messages: [
         {
           role: 'system',
-          content: VISION_SYSTEM_PROMPT,
+          content: buildVisionSystemPrompt(categories, language),
         },
         {
           role: 'user',
@@ -928,7 +1083,7 @@ export async function analyzeWithVision(
   try {
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return normalizeVisionResult(JSON.parse(jsonMatch[0]), fallbackTitle);
+      return normalizeVisionResult(JSON.parse(jsonMatch[0]), fallbackTitle, categories);
     }
   } catch {
     // fallback
@@ -941,7 +1096,7 @@ export async function analyzeWithVision(
     possible_activity: content.substring(0, 120),
     confidence: 'low',
     activity_type: 'unclear',
-  }, fallbackTitle);
+  }, fallbackTitle, categories);
 }
 
 /** A deliberately observation-only pass used before a screen question enters chat. */
@@ -999,10 +1154,13 @@ export interface GenerateReportParams {
   reportType: string;
   startDate: string;
   endDate: string;
+  language?: 'zh-CN' | 'en-US';
+  /** 用户为当前报告用途编辑的写作提示词；事实边界仍由系统提示词固定。 */
+  customPrompt?: string;
 }
 
 export function buildReportPromptPayload(params: GenerateReportParams): { systemPrompt: string; userContent: string } {
-  const { visionResults, records, idlePeriods = [], template, reportType, startDate, endDate } = params;
+  const { visionResults, records, idlePeriods = [], template, reportType, startDate, endDate, language = 'zh-CN', customPrompt = '' } = params;
   const isWorkReport = template === '工作日报';
   const isAllDayReview = template === '全天回顾';
   const usableVisionResults = isWorkReport
@@ -1049,13 +1207,7 @@ export function buildReportPromptPayload(params: GenerateReportParams): { system
 2. observed_fact 是事实依据，possible_activity 只能作为保守推断。
 3. 不要把“正在查看/编辑/讨论”写成“已经完成/实现/修复”。
 4. 不要批评用户，也不要使用道德评价。
-格式要求：
-## 全天概览
-用 2-4 句概括一天的活动结构
-## 活动时间线
-按时间顺序列出主要活动
-## 工作与生活分布
-简要说明工作、个人/娱乐、空闲或不确定内容`;
+输出的具体结构、侧重点和语气由用户为当前复盘方案设置的写作提示词决定。`;
   } else {
     systemPrompt = `你是一个专业、保守的工作日报助手。请根据用户的 AI 截屏识别摘要和窗口追踪记录生成一份工作${reportType}。
 当前材料已在本地预过滤：AI 截屏识别只保留 activity_type=work 且 confidence=high 的记录；游戏、私人聊天、空闲、低置信和不确定内容默认不进入正文。
@@ -1064,13 +1216,7 @@ export function buildReportPromptPayload(params: GenerateReportParams): { system
 2. 不要把“正在查看/编辑/讨论”写成“已经完成/实现/修复”，除非材料明确证明完成。
 3. 不要编造明日计划、完成结果、提交记录或用户没有确认的成果。
 4. 如果材料不足，就写成“可确认的工作记录较少”，不要硬凑。
-格式要求：
-## 今日工作
-按主题或时间列出可确认的工作内容
-## 可写入日报的进展
-只提炼材料能支持的进展
-## 待确认
-列出需要用户补充确认的内容，材料不足时可以为空`;
+输出的具体结构、侧重点和语气由用户为当前复盘方案设置的写作提示词决定。`;
   }
 
   // 组装用户消息：vision 优先
@@ -1091,6 +1237,13 @@ export function buildReportPromptPayload(params: GenerateReportParams): { system
     userContent += '（无工作记录数据，请生成空报告模板）';
   }
 
+  if (language === 'en-US') {
+    systemPrompt += '\n\nWrite the whole report in English. Preserve factual uncertainty and do not alter quoted user content.';
+  }
+  const trimmedCustomPrompt = customPrompt.trim().slice(0, 6000);
+  if (trimmedCustomPrompt) {
+    systemPrompt += `\n\n以下是用户为“${reportType} · ${template}”设置的写作提示词。它可以决定报告的结构、侧重点和语气，但不能覆盖上面的事实边界、材料过滤规则或不编造的要求：\n${trimmedCustomPrompt}`;
+  }
   return { systemPrompt, userContent };
 }
 

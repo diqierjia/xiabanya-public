@@ -505,6 +505,14 @@ export function sendDeskPetScreenQuestionToChat(payload: Record<string, unknown>
   }
 }
 
+/** Update independent desk-pet renderers without closing an active conversation. */
+export function refreshDeskPetLanguage(): void {
+  for (const window of [chatWindow, screenQuestionWindow]) {
+    if (!window || window.isDestroyed() || window.webContents.isLoading()) continue;
+    window.webContents.executeJavaScript('window.applyDeskPetChatLanguage?.() || window.applyScreenQuestionLanguage?.()').catch(() => {});
+  }
+}
+
 function setChatWindowOpen(open: boolean): void {
   const petBounds = deskPetWindow && !deskPetWindow.isDestroyed() ? deskPetWindow.getBounds() : null;
   if (open) {

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { CHAT_COMPACTION_BATCH_SIZE, CHAT_RAW_TURN_LIMIT } from '../shared/chat-memory';
 import type {
   ActivityRecord,
   ChatCompactionDebugRun,
@@ -29,6 +30,8 @@ import type {
   RecordUpsertDTO,
   RecordsQuery,
   ReportsQuery,
+  ExportJsonData,
+  ExportJsonOptions,
 } from '../shared/types';
 import { formatUtcStorageDateTime, localDateRangeToUtcStorageRange } from '../shared/time';
 
@@ -266,6 +269,8 @@ export class DatabaseService {
         element_ids_json TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL,
         error TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_retry_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         completed_at TEXT
@@ -285,6 +290,15 @@ export class DatabaseService {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS realtime_memory_extractions (
+        message_id TEXT PRIMARY KEY,
+        criticality TEXT NOT NULL,
+        status TEXT NOT NULL,
+        event_ids_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_idle_periods_range ON idle_periods(start_at, end_at);
       CREATE INDEX IF NOT EXISTS idx_vision_created ON vision_results(created_at);
       CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
@@ -297,12 +311,15 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_memory_proposals_status ON memory_proposals(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_memory_tool_debug_runs_created ON memory_tool_debug_runs(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_chat_compactions_status ON chat_compactions(status, start_turn);
+      CREATE INDEX IF NOT EXISTS idx_realtime_memory_extractions_status ON realtime_memory_extractions(status, message_id);
     `);
     this.ensureVisionResultColumns();
     this.ensureChatMessageColumns();
     this.ensureMemoryElementColumns();
     this.ensureChatCompactionColumns();
     this.ensureMemoryToolDebugColumns();
+    this.queueLegacyFailedChatCompactions();
+    this.recoverStaleChatCompactions();
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -426,6 +443,15 @@ export class DatabaseService {
     this.ensureColumn('chat_compactions', 'resident_memory_json', "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn('chat_compactions', 'event_ids_json', "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn('chat_compactions', 'element_ids_json', "TEXT NOT NULL DEFAULT '[]'");
+    this.ensureColumn('chat_compactions', 'attempt_count', 'INTEGER NOT NULL DEFAULT 0');
+    this.ensureColumn('chat_compactions', 'next_retry_at', 'TEXT');
+  }
+
+  /** 旧版本的 failed 没有次数语义，曾经会在下一次聊天自动重试；升级后保持这一行为。 */
+  private queueLegacyFailedChatCompactions(): void {
+    const now = formatUtcStorageDateTime();
+    this.db.prepare("UPDATE chat_compactions SET status = 'pending', next_retry_at = ?, updated_at = ? WHERE status = 'failed' AND attempt_count = 0")
+      .run(now, now);
   }
 
   private ensureMemoryToolDebugColumns(): void {
@@ -515,6 +541,18 @@ export class DatabaseService {
 
   updateRecordCategory(id: string, category: string): void {
     this.db.prepare('UPDATE records SET category = ? WHERE id = ?').run(category, id);
+  }
+
+  saveManagedCategories(categories: string[], renames: Array<{ from: string; to: string }> = []): void {
+    const transaction = this.db.transaction(() => {
+      for (const { from, to } of renames) {
+        if (!from || !to || from === to) continue;
+        this.db.prepare('UPDATE records SET category = ? WHERE category = ?').run(to, from);
+        this.db.prepare('UPDATE vision_results SET category = ? WHERE category = ?').run(to, from);
+      }
+      this.setSetting('managed_categories', JSON.stringify(categories));
+    });
+    transaction();
   }
 
   // ===== Reports CRUD =====
@@ -660,38 +698,48 @@ export class DatabaseService {
   }
 
   /**
-   * 第 25 轮完成后先整理最早的 8 轮，之后每多 8 轮继续整理下一批。
+   * 始终保留最近 12 个完整轮次原文；当前窗口中的最早 4 轮先异步整理一次。
+   * 整理只生成摘要和长期卡片，原文仍完整保留在短期窗口中。
    * claim 在模型调用前落库，避免连续回复并发触发同一批整理。
    */
   claimNextChatCompactionBatch(): ChatCompactionBatch | undefined {
-    const batchSize = 8;
-    const retainedRawTurns = 17;
+    const batchSize = CHAT_COMPACTION_BATCH_SIZE;
+    const retainedRawTurns = CHAT_RAW_TURN_LIMIT;
     const now = formatUtcStorageDateTime();
     const claim = this.db.transaction((): ChatCompactionBatch | undefined => {
+      this.recoverStaleChatCompactions(now);
       const processing = this.db.prepare("SELECT id FROM chat_compactions WHERE status = 'processing' LIMIT 1").get();
       if (processing) return undefined;
 
       const completed = this.db.prepare("SELECT MAX(end_turn) AS end_turn FROM chat_compactions WHERE status = 'completed'").get() as { end_turn?: number | null };
       const normalizedStartTurn = completed.end_turn ? Number(completed.end_turn) + 1 : 1;
       const endTurn = normalizedStartTurn + batchSize - 1;
-      if (this.getMemoryTurn() < endTurn + retainedRawTurns) return undefined;
+      // 第 12 轮先整理 1–4；第 16 轮整理 5–8。每批整理时，来源原文
+      // 仍在最近 12 轮窗口中，因此可以与刚生成的 L0 卡并存。
+      if (this.getMemoryTurn() < endTurn + retainedRawTurns - batchSize) return undefined;
 
       const turns = this.listCompletedChatTurns();
       const batchTurns = turns.slice(normalizedStartTurn - 1, endTurn);
       if (batchTurns.length !== batchSize) return undefined;
       const messages = batchTurns.flat();
       const sourceRefs = messages.map((message) => message.id);
-      const failed = this.db.prepare("SELECT id FROM chat_compactions WHERE start_turn = ? AND status = 'failed'").get(normalizedStartTurn) as { id: string } | undefined;
-      const id = failed?.id || `chatcmp_${uuidv4()}`;
-      if (failed) {
-        this.db.prepare("UPDATE chat_compactions SET end_turn = ?, source_refs_json = ?, status = 'processing', error = NULL, updated_at = ? WHERE id = ?")
-          .run(endTurn, JSON.stringify(sourceRefs), now, id);
+      const pending = this.db.prepare("SELECT id, end_turn, source_refs_json FROM chat_compactions WHERE start_turn = ? AND status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= ?)")
+        .get(normalizedStartTurn, now) as { id: string; end_turn: number; source_refs_json: string } | undefined;
+      const existing = this.db.prepare('SELECT id FROM chat_compactions WHERE start_turn = ?').get(normalizedStartTurn) as { id: string } | undefined;
+      if (existing && !pending) return undefined;
+
+      const id = pending?.id || `chatcmp_${uuidv4()}`;
+      if (pending) {
+        this.db.prepare("UPDATE chat_compactions SET status = 'processing', error = NULL, next_retry_at = NULL, attempt_count = attempt_count + 1, updated_at = ? WHERE id = ?")
+          .run(now, id);
       } else {
-        this.db.prepare(`INSERT INTO chat_compactions (id, start_turn, end_turn, source_refs_json, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 'processing', ?, ?)`)
+        this.db.prepare(`INSERT INTO chat_compactions (id, start_turn, end_turn, source_refs_json, status, attempt_count, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'processing', 1, ?, ?)`)
           .run(id, normalizedStartTurn, endTurn, JSON.stringify(sourceRefs), now, now);
       }
-      return { id, startTurn: normalizedStartTurn, endTurn, previousSummary: this.getChatWorkingSummary(), messages };
+      const retrySourceRefs = pending ? this.parseStringArray(pending.source_refs_json) : sourceRefs;
+      const retryMessages = pending ? this.listChatMessages().filter((message) => retrySourceRefs.includes(message.id)) : messages;
+      return { id, startTurn: normalizedStartTurn, endTurn: pending?.end_turn || endTurn, previousSummary: this.getChatWorkingSummary(), messages: retryMessages };
     });
     return claim();
   }
@@ -701,10 +749,10 @@ export class DatabaseService {
   }
 
   /**
-   * 整理器尚未返回或需要重试时，把旧原文临时补进上下文，避免第 26 轮出现断层。
+   * 整理器尚未返回或需要重试时，把已滑出最近 12 轮窗口的来源原文临时补进上下文，避免断层。
    */
   getPendingChatCompactionMessages(): ChatHistoryMessage[] {
-    const row = this.db.prepare("SELECT source_refs_json FROM chat_compactions WHERE status IN ('processing', 'failed') ORDER BY start_turn ASC LIMIT 1")
+    const row = this.db.prepare("SELECT source_refs_json FROM chat_compactions WHERE status IN ('processing', 'pending', 'failed') ORDER BY start_turn ASC LIMIT 1")
       .get() as { source_refs_json?: string } | undefined;
     if (!row) return [];
     const ids = new Set(this.parseStringArray(row.source_refs_json));
@@ -736,15 +784,90 @@ export class DatabaseService {
       .run(summary, JSON.stringify(result.calls || []), JSON.stringify(result.residentMemory || []), JSON.stringify(eventIds), JSON.stringify([...new Set(elementIds)]), now, now, id);
   }
 
-  failChatCompaction(id: string, error: unknown): void {
-    this.db.prepare("UPDATE chat_compactions SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status = 'processing'")
-      .run(String(error instanceof Error ? error.message : error).slice(0, 500), formatUtcStorageDateTime(), id);
+  /** 以消息 ID 为幂等键，避免同一轮重复发起实时提取。 */
+  claimRealtimeMemoryExtraction(messageId: string, criticality: MemoryCriticality): boolean {
+    if (!messageId.trim() || !['safety', 'identity'].includes(criticality)) return false;
+    const now = formatUtcStorageDateTime();
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO realtime_memory_extractions
+        (message_id, criticality, status, event_ids_json, created_at, updated_at)
+      VALUES (?, ?, 'processing', '[]', ?, ?)
+    `).run(messageId, criticality, now, now);
+    return result.changes > 0;
+  }
+
+  finishRealtimeMemoryExtraction(messageId: string, eventIds: string[]): void {
+    const ids = [...new Set(eventIds)].filter(Boolean);
+    const status = ids.length > 0 ? 'completed' : 'ignored';
+    this.db.prepare(`UPDATE realtime_memory_extractions
+      SET status = ?, event_ids_json = ?, updated_at = ?
+      WHERE message_id = ? AND status = 'processing'`
+    ).run(status, JSON.stringify(ids), formatUtcStorageDateTime(), messageId);
+  }
+
+  failRealtimeMemoryExtraction(messageId: string): void {
+    this.db.prepare(`UPDATE realtime_memory_extractions
+      SET status = 'failed', updated_at = ? WHERE message_id = ? AND status = 'processing'`
+    ).run(formatUtcStorageDateTime(), messageId);
+  }
+
+  /** 已实时建卡的消息仍可参与摘要，但批量整理器不得再从它们生成事件卡。 */
+  listRealtimeExtractedMessageIds(messageIds: string[]): string[] {
+    const ids = [...new Set(messageIds)].filter(Boolean);
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(', ');
+    return (this.db.prepare(`SELECT message_id FROM realtime_memory_extractions
+      WHERE status = 'completed' AND message_id IN (${placeholders})`).all(...ids) as Array<{ message_id: string }>)
+      .map((row) => row.message_id);
+  }
+
+  /** 自动重试最多三次；超过上限后必须由用户明确点击重试。 */
+  failChatCompaction(id: string, error: unknown): { nextRetryAt: string | null; terminal: boolean } {
+    const row = this.db.prepare("SELECT attempt_count FROM chat_compactions WHERE id = ? AND status = 'processing'")
+      .get(id) as { attempt_count: number } | undefined;
+    if (!row) return { nextRetryAt: null, terminal: true };
+
+    const now = new Date();
+    const message = String(error instanceof Error ? error.message : error).slice(0, 500);
+    const automaticRetriesUsed = Math.max(0, Number(row.attempt_count) - 1);
+    if (automaticRetriesUsed >= 3) {
+      this.db.prepare("UPDATE chat_compactions SET status = 'failed', error = ?, next_retry_at = NULL, updated_at = ? WHERE id = ? AND status = 'processing'")
+        .run(message, formatUtcStorageDateTime(now), id);
+      return { nextRetryAt: null, terminal: true };
+    }
+
+    const delayMs = [30_000, 120_000, 600_000][automaticRetriesUsed];
+    const nextRetryAt = formatUtcStorageDateTime(new Date(now.getTime() + delayMs));
+    this.db.prepare("UPDATE chat_compactions SET status = 'pending', error = ?, next_retry_at = ?, updated_at = ? WHERE id = ? AND status = 'processing'")
+      .run(message, nextRetryAt, formatUtcStorageDateTime(now), id);
+    return { nextRetryAt, terminal: false };
+  }
+
+  /** 手动重试开启一次新的自动重试周期，原文和批次 ID 均保持不变。 */
+  retryChatCompaction(id: string): boolean {
+    const now = formatUtcStorageDateTime();
+    const result = this.db.prepare("UPDATE chat_compactions SET status = 'pending', error = NULL, attempt_count = 0, next_retry_at = ?, updated_at = ? WHERE id = ? AND status = 'failed'")
+      .run(now, now, id);
+    return result.changes > 0;
+  }
+
+  /** 应用崩溃或异常退出时遗留的 processing 租约，在十分钟后自动释放。 */
+  recoverStaleChatCompactions(now = formatUtcStorageDateTime()): number {
+    const cutoff = formatUtcStorageDateTime(new Date(Date.now() - 10 * 60 * 1000));
+    const result = this.db.prepare(`UPDATE chat_compactions
+      SET status = CASE WHEN attempt_count >= 4 THEN 'failed' ELSE 'pending' END,
+          error = '整理器超过 10 分钟未完成，已自动释放。',
+          next_retry_at = CASE WHEN attempt_count >= 4 THEN NULL ELSE ? END,
+          updated_at = ?
+      WHERE status = 'processing' AND updated_at <= ?`)
+      .run(now, now, cutoff);
+    return result.changes;
   }
 
   getChatMemoryRuntimeDebug(): ChatMemoryRuntimeDebug {
     const allMessages = this.listChatMessages();
     const completedTurns = this.listCompletedChatTurns();
-    const shortTermMessageIds = completedTurns.slice(-25).flat().map((message) => message.id);
+    const shortTermMessageIds = completedTurns.slice(-CHAT_RAW_TURN_LIMIT).flat().map((message) => message.id);
     const pendingMessageIds = this.getPendingChatCompactionMessages().map((message) => message.id);
     const rows = this.db.prepare('SELECT * FROM chat_compactions ORDER BY start_turn DESC LIMIT 30').all() as Array<Record<string, unknown>>;
     const parseArray = <T>(value: unknown): T[] => {
@@ -759,8 +882,10 @@ export class DatabaseService {
       end_turn: Number(row.end_turn),
       source_refs: parseArray<string>(row.source_refs_json).filter((id): id is string => typeof id === 'string'),
       conversation_summary: String(row.conversation_summary || ''),
-      status: ['processing', 'completed', 'failed'].includes(String(row.status)) ? row.status as ChatCompactionDebugRun['status'] : 'failed',
+      status: ['pending', 'processing', 'completed', 'failed'].includes(String(row.status)) ? row.status as ChatCompactionDebugRun['status'] : 'failed',
       error: typeof row.error === 'string' ? row.error : null,
+      attempt_count: Math.max(0, Number(row.attempt_count) || 0),
+      next_retry_at: typeof row.next_retry_at === 'string' ? row.next_retry_at : null,
       calls: parseArray<MemoryToolDebugCall>(row.tool_calls_json).filter((call): call is MemoryToolDebugCall => !!call && typeof call === 'object' && typeof call.name === 'string'),
       resident_memory: parseArray<ChatCompactionDebugRun['resident_memory'][number]>(row.resident_memory_json).filter((item): item is ChatCompactionDebugRun['resident_memory'][number] => !!item && typeof item === 'object' && (item as { kind?: unknown }).kind !== undefined && typeof (item as { id?: unknown }).id === 'string'),
       event_ids: parseArray<string>(row.event_ids_json).filter((id): id is string => typeof id === 'string'),
@@ -1302,10 +1427,10 @@ export class DatabaseService {
   }
 
   /**
-   * `excludeSourceRefs` 只影响主聊天的默认注入：若事件的原始聊天仍在短期上下文，
-   * 不重复注入压缩卡。调用方不传此参数时（例如未来的精确搜索/展开工具），卡仍可立即访问。
+   * 整理完成的事件卡立即可供聊天检索；即使来源原话仍在最近 12 轮中，
+   * 也不额外延迟，原文与 L0 卡允许同时存在。
    */
-  findMemoryEventsForChat(query: string, limit = 6, options?: { excludeSourceRefs?: readonly string[] }): MemoryEvent[] {
+  findMemoryEventsForChat(query: string, limit = 6): MemoryEvent[] {
     const normalized = query.toLocaleLowerCase();
     const terms = new Set<string>();
     for (const chunk of normalized.match(/[\p{Script=Han}]{2,}|[a-z0-9_+#.-]{2,}/gu) || []) {
@@ -1314,11 +1439,9 @@ export class DatabaseService {
         for (let index = 0; index < chunk.length - 1; index += 1) terms.add(chunk.slice(index, index + 2));
       }
     }
-    const shortTermSourceRefs = new Set(options?.excludeSourceRefs?.filter(Boolean) || []);
     const candidates = this.listMemoryEvents().filter((event) => (
       event.status !== 'forgotten' &&
-      event.status !== 'archived' &&
-      !event.source_refs.some((sourceRef) => shortTermSourceRefs.has(sourceRef))
+      event.status !== 'archived'
     ));
     const ranked = candidates.map((event) => {
       const haystack = `${event.title} ${event.summary} ${event.narrative} ${event.tags.join(' ')}`.toLocaleLowerCase();
@@ -1550,31 +1673,54 @@ export class DatabaseService {
   }
 
   // ===== Export/Import =====
-  exportAll(): { exported_at: string; records: ActivityRecord[]; reports: Report[] } {
-    const records = this.listRecords({ start: '1900-01-01', end: '2999-12-31' });
-    const reports = this.listReports({});
-    return { exported_at: formatUtcStorageDateTime(), records, reports };
+  exportAll(options: ExportJsonOptions = {}): ExportJsonData {
+    const start = options.start || '';
+    const end = options.end || '';
+    if ((start && !end) || (!start && end) || (start && end && start > end)) {
+      throw new Error('Invalid export date range');
+    }
+    const range = start && end ? { start, end } : null;
+    const records = range
+      ? this.listRecords(range)
+      : this.listRecords({ start: '1900-01-01', end: '2999-12-31' });
+    const reports = range
+      ? this.db.prepare(`SELECT * FROM reports
+          WHERE start_date <= ? AND end_date >= ?
+          ORDER BY created_at DESC, rowid DESC`).all(range.end, range.start) as Report[]
+      : this.listReports({});
+    return { exported_at: formatUtcStorageDateTime(), range, records, reports };
   }
 
-  importAll(data: { records: ActivityRecord[] }): number {
+  importAll(data: { records?: ActivityRecord[]; reports?: Report[] }): number {
     let n = 0;
     const stmt = this.db.prepare(
       'INSERT OR IGNORE INTO records (id, title, category, app, window_title, start_at, end_at, notes, source, created_at, is_achievement, exclude_from_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    const transaction = this.db.transaction((rows: ActivityRecord[]) => {
-      for (const r of rows) {
+    const reportStmt = this.db.prepare(
+      'INSERT OR IGNORE INTO reports (id, report_type, template, start_date, end_date, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    const transaction = this.db.transaction((records: ActivityRecord[], reports: Report[]) => {
+      for (const r of records) {
         if (!r.start_at || !r.end_at) continue;
         stmt.run(r.id || uuidv4(), r.title || '工作记录', r.category || '其他', r.app || '', r.window_title || '',
           r.start_at, r.end_at, r.notes || '', r.source || 'import', r.created_at || '', r.is_achievement ? 1 : 0, r.exclude_from_report ? 1 : 0);
         n++;
       }
+      for (const report of reports) {
+        if (!report.start_date || !report.end_date || !report.content) continue;
+        reportStmt.run(
+          report.id || uuidv4(), report.report_type || '日报', report.template || '',
+          report.start_date, report.end_date, report.content, report.created_at || formatUtcStorageDateTime(),
+        );
+        n++;
+      }
     });
-    transaction(data.records);
+    transaction(data.records || [], data.reports || []);
     return n;
   }
 
   clear(): void {
-    this.db.exec('DELETE FROM records; DELETE FROM reports; DELETE FROM vision_results; DELETE FROM idle_periods; DELETE FROM chat_messages; DELETE FROM chat_queued_messages; DELETE FROM memory_usage_receipts; DELETE FROM memory_tool_debug_runs; DELETE FROM memory_element_state_history; DELETE FROM memory_proposals; DELETE FROM chat_compactions; DELETE FROM memory_event_relations; DELETE FROM memory_event_elements; DELETE FROM memory_weight_history; DELETE FROM memory_events; DELETE FROM memory_elements; DELETE FROM settings WHERE key IN (\'memory_turn\', \'chat_working_summary\');');
+    this.db.exec('DELETE FROM records; DELETE FROM reports; DELETE FROM vision_results; DELETE FROM idle_periods; DELETE FROM chat_messages; DELETE FROM chat_queued_messages; DELETE FROM memory_usage_receipts; DELETE FROM memory_tool_debug_runs; DELETE FROM realtime_memory_extractions; DELETE FROM memory_element_state_history; DELETE FROM memory_proposals; DELETE FROM chat_compactions; DELETE FROM memory_event_relations; DELETE FROM memory_event_elements; DELETE FROM memory_weight_history; DELETE FROM memory_events; DELETE FROM memory_elements; DELETE FROM settings WHERE key IN (\'memory_turn\', \'chat_working_summary\');');
     this.ensureConversationAnchors();
   }
 

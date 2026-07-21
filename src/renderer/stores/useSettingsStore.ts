@@ -28,6 +28,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       const raw = await api.settings.getAll();
       set({
         settings: {
+          language: raw.language === 'en-US' ? 'en-US' : DEFAULT_SETTINGS.language,
           siliconflow_api_key: raw.siliconflow_api_key || DEFAULT_SETTINGS.siliconflow_api_key,
           custom_api_enabled: readBooleanSetting(raw, 'custom_api_enabled'),
           custom_api_base_url: raw.custom_api_base_url || DEFAULT_SETTINGS.custom_api_base_url,

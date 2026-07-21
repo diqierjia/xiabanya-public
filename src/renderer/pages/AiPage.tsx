@@ -8,6 +8,7 @@ import { useXiabanyaApi } from '../hooks/useXiabanyaApi';
 import { dur, today } from '../lib/utils';
 import type { ChatMemoryRuntimeDebug, ChatMessage, MemoryToolDebugRun, VisionResultWithDuration } from '../../shared/types';
 import { formatUtcStorageTime } from '../../shared/time';
+import { useTranslation } from '../i18n';
 
 type LocalChatMessage = {
   id: string;
@@ -76,10 +77,10 @@ function ChatToolDebug({ run, loading, firstResponseLatencyMs, visionUnderstandi
   </div>;
 }
 
-function ChatMemoryRuntimePanel({ runtime, messages, loading, onRefresh }: { runtime: ChatMemoryRuntimeDebug | null; messages: LocalChatMessage[]; loading: boolean; onRefresh: () => void }) {
+function ChatMemoryRuntimePanel({ runtime, messages, loading, onRefresh, onRetry, retryingBatchId }: { runtime: ChatMemoryRuntimeDebug | null; messages: LocalChatMessage[]; loading: boolean; onRefresh: () => void; onRetry: (id: string) => void; retryingBatchId: string | null }) {
   const contentById = new Map(messages.map((message) => [message.id, message]));
-  const statusClass = (status: string) => status === 'completed' ? 'bg-emerald-100 text-emerald-700' : status === 'processing' ? 'bg-brand-100 text-brand-700' : 'bg-red-100 text-red-700';
-  const statusLabel = (status: string) => status === 'completed' ? '已完成' : status === 'processing' ? '整理中' : '待重试';
+  const statusClass = (status: string) => status === 'completed' ? 'bg-emerald-100 text-emerald-700' : status === 'processing' ? 'bg-brand-100 text-brand-700' : status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700';
+  const statusLabel = (status: string) => status === 'completed' ? '已完成' : status === 'processing' ? '整理中' : status === 'pending' ? '自动重试中' : '整理失败';
   return <Card className="p-4">
     <div className="flex items-start justify-between gap-3">
       <div><h3 className="text-sm font-semibold text-gray-800">对话记忆运行图</h3><p className="mt-1 text-xs leading-5 text-gray-500">原文始终保留；这里展示主模型窗口、整理批次与读取调用。</p></div>
@@ -88,12 +89,13 @@ function ChatMemoryRuntimePanel({ runtime, messages, loading, onRefresh }: { run
     {!runtime ? <p className="mt-3 text-xs text-gray-500">暂无运行数据。</p> : <div className="mt-3 space-y-3">
       <div className="grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-gray-50 p-2"><Database size={14} className="mx-auto text-gray-500" /><b className="mt-1 block text-gray-800">{runtime.full_message_count}</b><span className="text-gray-500">全部原文</span></div><div className="rounded-lg bg-brand-50 p-2"><Layers3 size={14} className="mx-auto text-brand-600" /><b className="mt-1 block text-brand-800">{runtime.short_term_message_ids.length}</b><span className="text-brand-700">主模型原文</span></div><div className="rounded-lg bg-amber-50 p-2"><Archive size={14} className="mx-auto text-amber-600" /><b className="mt-1 block text-amber-800">{runtime.pending_message_ids.length}</b><span className="text-amber-700">待整理原文</span></div></div>
       <details className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"><summary className="cursor-pointer text-xs font-medium text-gray-700">当前会话状态摘要</summary><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-gray-600">{runtime.working_summary || '尚未有批次被整理。'}</p></details>
-      <div className="space-y-2"><p className="flex items-center gap-1.5 text-xs font-medium text-gray-700"><BrainCircuit size={13} />整理器批次</p>{runtime.compactions.length === 0 ? <p className="text-xs text-gray-500">累计到第 25 个完整轮次后才会出现第一批。</p> : runtime.compactions.map((batch) => <details key={batch.id} className="rounded-lg border border-gray-100 bg-white px-3 py-2"><summary className="flex cursor-pointer items-center justify-between gap-2 text-xs"><span className="font-medium text-gray-700">第 {batch.start_turn}–{batch.end_turn} 轮</span><span className="flex items-center gap-1.5"><span className="text-gray-400">{batch.calls.length} 次读取 · {batch.event_ids.length + batch.element_ids.length} 项写入</span><span className={`rounded px-1.5 py-0.5 ${statusClass(batch.status)}`}>{statusLabel(batch.status)}</span></span></summary><div className="mt-2 space-y-2 text-xs leading-5 text-gray-600">{batch.error && <p className="rounded bg-red-50 px-2 py-1.5 text-red-700">{batch.error}</p>}<p><b>会话摘要：</b>{batch.conversation_summary || '尚未产出。'}</p><p><b>默认 L0：</b>{batch.resident_memory.length ? batch.resident_memory.map((item) => `${item.kind === 'event' ? '事件' : '元素'}·${item.label}`).join('、') : '无'}</p><p><b>工具调用：</b>{batch.calls.length ? batch.calls.map((call) => call.name).join(' → ') : '未调用（默认 L0 已足够或工具不可用）'}</p>{batch.calls.map((call, index) => <details key={`${call.name}-${index}`} className="rounded bg-gray-50 px-2 py-1.5"><summary className="cursor-pointer">{call.name}</summary><pre className="mt-1 max-h-28 overflow-auto text-[10px] leading-4">{JSON.stringify({ arguments: call.arguments, result: call.result }, null, 2)}</pre></details>)}<details className="rounded bg-gray-50 px-2 py-1.5"><summary className="cursor-pointer">本批完整原文（{batch.source_refs.length} 条）</summary><div className="mt-1 space-y-1">{batch.source_refs.map((id) => <p key={id} className="break-words">{contentById.get(id) ? `${contentById.get(id)!.role === 'user' ? '你' : '小黄鸭'}：${contentById.get(id)!.content}` : `[${id}] 原文仍保存，当前页面尚未加载该条。`}</p>)}</div></details></div></details>)}</div>
+      <div className="space-y-2"><p className="flex items-center gap-1.5 text-xs font-medium text-gray-700"><BrainCircuit size={13} />整理器批次</p>{runtime.compactions.length === 0 ? <p className="text-xs text-gray-500">累计到第 16 个完整轮次后才会出现第一批。</p> : runtime.compactions.map((batch) => <details key={batch.id} className="rounded-lg border border-gray-100 bg-white px-3 py-2"><summary className="flex cursor-pointer items-center justify-between gap-2 text-xs"><span className="font-medium text-gray-700">第 {batch.start_turn}–{batch.end_turn} 轮</span><span className="flex items-center gap-1.5"><span className="text-gray-400">{batch.calls.length} 次读取 · {batch.event_ids.length + batch.element_ids.length} 项写入</span><span className={`rounded px-1.5 py-0.5 ${statusClass(batch.status)}`}>{statusLabel(batch.status)}</span></span></summary><div className="mt-2 space-y-2 text-xs leading-5 text-gray-600">{batch.error && <p className="rounded bg-red-50 px-2 py-1.5 text-red-700">{batch.error}</p>}{batch.status === 'pending' && <p className="text-amber-700">已自动重试 {Math.max(0, batch.attempt_count - 1)}/3 次{batch.next_retry_at ? `，下一次将在 ${formatUtcStorageTime(batch.next_retry_at, true)} 发起。` : '。'}</p>}{batch.status === 'failed' && <div className="flex items-center justify-between gap-2 rounded bg-red-50 px-2 py-1.5"><span className="text-red-700">已自动重试 3 次仍未完成。</span><Button variant="danger" size="sm" loading={retryingBatchId === batch.id} onClick={() => onRetry(batch.id)}>重试</Button></div>}<p><b>会话摘要：</b>{batch.conversation_summary || '尚未产出。'}</p><p><b>默认 L0：</b>{batch.resident_memory.length ? batch.resident_memory.map((item) => `${item.kind === 'event' ? '事件' : '元素'}·${item.label}`).join('、') : '无'}</p><p><b>工具调用：</b>{batch.calls.length ? batch.calls.map((call) => call.name).join(' → ') : '未调用（默认 L0 已足够或工具不可用）'}</p>{batch.calls.map((call, index) => <details key={`${call.name}-${index}`} className="rounded bg-gray-50 px-2 py-1.5"><summary className="cursor-pointer">{call.name}</summary><pre className="mt-1 max-h-28 overflow-auto text-[10px] leading-4">{JSON.stringify({ arguments: call.arguments, result: call.result }, null, 2)}</pre></details>)}<details className="rounded bg-gray-50 px-2 py-1.5"><summary className="cursor-pointer">本批完整原文（{batch.source_refs.length} 条）</summary><div className="mt-1 space-y-1">{batch.source_refs.map((id) => <p key={id} className="break-words">{contentById.get(id) ? `${contentById.get(id)!.role === 'user' ? '你' : '小黄鸭'}：${contentById.get(id)!.content}` : `[${id}] 原文仍保存，当前页面尚未加载该条。`}</p>)}</div></details></div></details>)}</div>
     </div>}
   </Card>;
 }
 
 export function AiPage() {
+  const { isEnglish, t, enumLabel, durationLabel } = useTranslation();
   const api = useXiabanyaApi();
   const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [contextItems, setContextItems] = useState<VisionResultWithDuration[]>([]);
@@ -109,6 +111,7 @@ export function AiPage() {
   const [loadingToolDebugMessageId, setLoadingToolDebugMessageId] = useState<string | null>(null);
   const [memoryRuntime, setMemoryRuntime] = useState<ChatMemoryRuntimeDebug | null>(null);
   const [loadingMemoryRuntime, setLoadingMemoryRuntime] = useState(false);
+  const [retryingCompactionId, setRetryingCompactionId] = useState<string | null>(null);
   const activeStreamIdRef = useRef<string | null>(null);
   const activeAssistantIdRef = useRef<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -213,6 +216,23 @@ export function AiPage() {
       toast.error(`读取对话记忆运行图失败: ${message}`);
     } finally {
       setLoadingMemoryRuntime(false);
+    }
+  };
+
+  const retryChatCompaction = async (id: string) => {
+    setRetryingCompactionId(id);
+    try {
+      if (!await api.memory.retryChatCompaction(id)) {
+        toast.error('该整理批次当前不能重试，请刷新后再试。');
+        return;
+      }
+      toast.success('已重新入队，正在尝试整理。');
+      await loadMemoryRuntime();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      toast.error(`重试整理批次失败: ${message}`);
+    } finally {
+      setRetryingCompactionId(null);
     }
   };
 
@@ -368,17 +388,17 @@ export function AiPage() {
       <Card className="flex flex-col min-h-[640px] overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm text-gray-500">主能力</p>
-            <h2 className="text-lg font-semibold text-gray-900">和理解你工作的 AI 对话</h2>
+            <p className="text-sm text-gray-500">{isEnglish ? 'Core capability' : '主能力'}</p>
+            <h2 className="text-lg font-semibold text-gray-900">{isEnglish ? 'Talk to an AI that understands your work' : '和理解你工作的 AI 对话'}</h2>
           </div>
           <Button variant="secondary" size="sm" icon={RefreshCw} loading={loadingHistory} onClick={loadHistory}>
-            刷新历史
+            {isEnglish ? 'Refresh history' : '刷新历史'}
           </Button>
         </div>
 
         <div className="relative flex-1 min-h-0">
           <div ref={chatScrollRef} onScroll={handleChatScroll} className="h-full overflow-auto p-5 space-y-4 bg-gray-50/60">
-            {loadingOlderMessages && <div className="sticky top-0 z-10 mx-auto w-fit rounded-full border border-gray-200 bg-white/95 px-3 py-1 text-xs text-gray-500 shadow-sm">正在加载更早消息…</div>}
+            {loadingOlderMessages && <div className="sticky top-0 z-10 mx-auto w-fit rounded-full border border-gray-200 bg-white/95 px-3 py-1 text-xs text-gray-500 shadow-sm">{isEnglish ? 'Loading earlier messages…' : '正在加载更早消息…'}</div>}
             {loadingHistory ? (
             <Skeleton.List count={8} />
           ) : messages.length === 0 ? (
@@ -387,9 +407,9 @@ export function AiPage() {
                 <div className="w-12 h-12 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mx-auto">
                   <Bot size={24} />
                 </div>
-                <h3 className="text-sm font-semibold text-gray-800 mt-4">从今天的工作上下文开始问</h3>
+                <h3 className="text-sm font-semibold text-gray-800 mt-4">{isEnglish ? "Start with today's work context" : '从今天的工作上下文开始问'}</h3>
                 <p className="text-sm text-gray-500 mt-2 leading-6">
-                  例如“今天我主要干了什么？”、“上午那段开发在做什么？”、“帮我准备一份日报素材”。
+                  {isEnglish ? 'For example: “What did I mainly do today?”, “What was that development work this morning?”, or “Help me prepare material for a work report.”' : '例如“今天我主要干了什么？”、“上午那段开发在做什么？”、“帮我准备一份日报素材”。'}
                 </p>
               </div>
             </div>
@@ -411,7 +431,7 @@ export function AiPage() {
               const bubbleContent = message.content || (message.pending ? (
                 <span className="flex items-center gap-2">
                   <span className="text-base leading-none shrink-0">🐥</span>
-                   <span className="text-gray-600">{message.status || '小黄鸭正在思考'}</span>
+                   <span className="text-gray-600">{message.status || (isEnglish ? 'Duck is thinking' : '小黄鸭正在思考')}</span>
                   <span className="inline-flex items-center gap-[3px] ml-0.5">
                     <span className="thinking-dot" style={{ animationDelay: '0s' }} />
                     <span className="thinking-dot" style={{ animationDelay: '0.2s' }} />
@@ -427,9 +447,9 @@ export function AiPage() {
                     </div>
                   )}
                   <div className={`max-w-[78%] ${isUser ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-                    {canInspectToolDebug ? <button type="button" onClick={() => void toggleToolDebug(message.id)} className={`${bubbleClass} cursor-pointer text-left transition-colors hover:border-brand-200 hover:bg-brand-50/30`} title="点击查看本轮工具调用">{bubbleContent}</button> : <div className={bubbleClass}>{bubbleContent}</div>}
+                    {canInspectToolDebug ? <button type="button" onClick={() => void toggleToolDebug(message.id)} className={`${bubbleClass} cursor-pointer text-left transition-colors hover:border-brand-200 hover:bg-brand-50/30`} title={isEnglish ? 'View tools used for this reply' : '点击查看本轮工具调用'}>{bubbleContent}</button> : <div className={bubbleClass}>{bubbleContent}</div>}
                     {message.pending && (
-                      <span className="text-[11px] text-gray-400">{message.status || '正在根据今日上下文回复'}</span>
+                      <span className="text-[11px] text-gray-400">{message.status || (isEnglish ? "Replying with today's context" : '正在根据今日上下文回复')}</span>
                     )}
                     {!message.pending && (isShortTermRaw || compaction) && <span className={`text-[11px] ${isShortTermRaw ? 'text-brand-600' : compaction?.status === 'completed' ? 'text-emerald-600' : 'text-amber-600'}`}>{isShortTermRaw ? '主模型完整原文窗口' : compaction?.status === 'completed' ? `原文已整理（第 ${compaction.start_turn}–${compaction.end_turn} 轮）` : '原文待整理 / 重试中'}</span>}
                     {canInspectToolDebug && isToolDebugOpen && <ChatToolDebug run={toolDebugByAssistantId[message.id]} loading={loadingToolDebugMessageId === message.id} firstResponseLatencyMs={message.responseLatencyMs} visionUnderstandingLatencyMs={message.visionUnderstandingLatencyMs} totalWaitLatencyMs={message.totalWaitLatencyMs} />}
@@ -449,8 +469,8 @@ export function AiPage() {
               type="button"
               onClick={() => scrollToBottom()}
               className="absolute bottom-4 right-5 flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-md transition hover:border-brand-200 hover:text-brand-700"
-              title="回到最新消息"
-              aria-label="回到最新消息"
+              title={isEnglish ? 'Back to newest message' : '回到最新消息'}
+              aria-label={isEnglish ? 'Back to newest message' : '回到最新消息'}
             >
               <ChevronDown size={18} />
             </button>
@@ -468,16 +488,16 @@ export function AiPage() {
                   sendMessage();
                 }
               }}
-              placeholder="问问今天、某个时间段、日报素材或你的工作节奏..."
+              placeholder={isEnglish ? 'Ask about today, a time range, report material, or your work rhythm…' : '问问今天、某个时间段、日报素材或你的工作节奏...'}
               className="flex-1 min-h-11 max-h-32 resize-y rounded-lg border border-gray-300 px-3 py-2 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-400"
             />
             {streaming ? (
               <Button variant="secondary" icon={AlertCircle} onClick={abortStream}>
-                停止
+                {isEnglish ? 'Stop' : '停止'}
               </Button>
             ) : (
               <Button icon={Send} onClick={sendMessage} disabled={!input.trim()}>
-                发送
+                {isEnglish ? 'Send' : '发送'}
               </Button>
             )}
           </div>
@@ -485,23 +505,23 @@ export function AiPage() {
       </Card>
 
       <aside className="space-y-4">
-        <ChatMemoryRuntimePanel runtime={memoryRuntime} messages={messages} loading={loadingMemoryRuntime} onRefresh={() => void loadMemoryRuntime()} />
+        <ChatMemoryRuntimePanel runtime={memoryRuntime} messages={messages} loading={loadingMemoryRuntime} onRefresh={() => void loadMemoryRuntime()} onRetry={(id) => void retryChatCompaction(id)} retryingBatchId={retryingCompactionId} />
         <Card className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-gray-800">今日上下文</h3>
-              <p className="text-xs text-gray-500 mt-1">当前聊天会使用今日 Vision、窗口记录和空闲时段。</p>
+              <h3 className="text-sm font-semibold text-gray-800">{isEnglish ? "Today's context" : '今日上下文'}</h3>
+              <p className="text-xs text-gray-500 mt-1">{isEnglish ? "This chat can use today's Vision, window records, and idle periods." : '当前聊天会使用今日 Vision、窗口记录和空闲时段。'}</p>
             </div>
             <Button variant="ghost" size="sm" icon={RefreshCw} loading={loadingContext} onClick={loadContext} />
           </div>
         </Card>
 
         <Card className="p-4">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">可见 Vision 片段</h3>
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">{isEnglish ? 'Visible Vision segments' : '可见 Vision 片段'}</h3>
           {loadingContext ? (
             <Skeleton.List count={5} />
           ) : contextItems.length === 0 ? (
-            <p className="text-sm text-gray-500 leading-6">今天还没有可展示的 Vision 结果。开启 Vision Auto 后，这里会显示 AI 可参考的时间片段。</p>
+            <p className="text-sm text-gray-500 leading-6">{isEnglish ? 'There are no visible Vision results today. Turn on Vision Auto to give the AI useful time segments here.' : '今天还没有可展示的 Vision 结果。开启 Vision Auto 后，这里会显示 AI 可参考的时间片段。'}</p>
           ) : (
             <div className="space-y-3">
               {contextItems.slice(0, 8).map((item) => (
@@ -513,9 +533,9 @@ export function AiPage() {
                   <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.observed_fact || item.summary}</p>
                   <div className="flex items-center gap-2 mt-2 text-[11px] text-gray-400">
                     <Clock size={11} />
-                    <span>{item.approx_duration_sec > 0 ? dur(item.approx_duration_sec) : '时长未知'}</span>
-                    <span>{item.confidence || 'medium'}</span>
-                    <span>{item.activity_type || 'unclear'}</span>
+                    <span>{item.approx_duration_sec > 0 ? (isEnglish ? durationLabel(item.approx_duration_sec) : dur(item.approx_duration_sec)) : (isEnglish ? 'Unknown duration' : '时长未知')}</span>
+                    <span>{enumLabel(item.confidence || 'medium')}</span>
+                    <span>{enumLabel(item.activity_type || 'unclear')}</span>
                   </div>
                 </div>
               ))}
@@ -524,9 +544,9 @@ export function AiPage() {
         </Card>
 
         <Card className="p-4 bg-gray-50">
-          <h3 className="text-sm font-semibold text-gray-800">能力边界</h3>
+          <h3 className="text-sm font-semibold text-gray-800">{isEnglish ? 'What it can and cannot do' : '能力边界'}</h3>
           <p className="text-xs text-gray-500 mt-2 leading-5">
-            主聊天和会话整理器共享事件卡、元素卡的 L0 索引，并可按需展开；对话原文始终保留。关键工作结论仍应回到 Timeline 证据层确认。
+            {isEnglish ? 'Main chat and the session organizer share an L0 index of event and element cards and can expand it when needed. Original conversations are retained; confirm important work conclusions against Timeline evidence.' : '主聊天和会话整理器共享事件卡、元素卡的 L0 索引，并可按需展开；对话原文始终保留。关键工作结论仍应回到 Timeline 证据层确认。'}
           </p>
         </Card>
       </aside>

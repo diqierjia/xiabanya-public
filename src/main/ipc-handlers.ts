@@ -3,11 +3,13 @@ import { DatabaseService } from './database';
 import { ActivityTracker } from './tracker';
 import type { TrackerCallback } from './tracker';
 import { captureDisplayScreenshot, captureScreenshot } from './screenshot';
-import { analyzeWithVision, compactChatMemory, describeScreenQuestion, generateReport, requestChatCompactionToolCalls, requestMemoryChatTurn, selectRecentChatTurns, streamChatCompletion, type MemoryToolCall, type VisionPreviousSegmentContext } from './ai';
+import { analyzeWithVision, compactChatMemory, describeScreenQuestion, extractRealtimeMemoryEvent, generateReport, requestChatCompactionToolCalls, requestMemoryChatTurn, selectRecentChatTurns, streamChatCompletion, type MemoryToolCall, type VisionPreviousSegmentContext } from './ai';
+import { matchRealtimeMemoryCriticality } from './memory-keywords';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import { DEFAULT_API_BASE_URL, DEFAULT_SETTINGS, type ChatHistoryMessage, type ChatMessage, type ChatMessagesQuery, type DeskPetState, type IdlePeriod, type MemoryToolDebugCall, type ProactiveMessage, type RecordUpsertDTO, type RecordsQuery, type ReportsQuery, type VisionQuery } from '../shared/types';
+import { CATEGORIES, DEFAULT_API_BASE_URL, DEFAULT_SETTINGS, normalizeManagedCategories, type ChatHistoryMessage, type ChatMessage, type ChatMessagesQuery, type DeskPetState, type ExportJsonOptions, type IdlePeriod, type MemoryToolDebugCall, type ProactiveMessage, type RecordUpsertDTO, type RecordsQuery, type ReportsQuery, type VisionQuery } from '../shared/types';
 import { formatLocalDate, formatLocalDateTime, formatUtcStorageDateTime, formatUtcStorageDateTimeLocal, formatUtcStorageTime, parseUtcStorageDateTime } from '../shared/time';
 import { randomUUID } from 'crypto';
+import { updateTrayLanguage } from './tray';
 import {
   getDeskPetState,
   closeDeskPetScreenQuestionWindow,
@@ -23,6 +25,7 @@ import {
   showDeskPetChatWindow,
   setDeskPetEnabled,
   setDeskPetState,
+  refreshDeskPetLanguage,
 } from './desk-pet-window';
 import {
   applyProactiveCommand,
@@ -48,6 +51,7 @@ let currentIdlePeriodId: string | null = null;
 let currentIdleStartedAt: string | null = null;
 let deskPetResumeTimer: ReturnType<typeof setTimeout> | null = null;
 let proactiveTimer: ReturnType<typeof setInterval> | null = null;
+let chatCompactionRetryTimer: ReturnType<typeof setTimeout> | null = null;
 const chatStreamAbortControllers = new Map<string, AbortController>();
 type ScreenQuestionObservation =
   | { ok: true; content: string; completedAt: number }
@@ -180,6 +184,17 @@ function getApiBaseUrl(db: DatabaseService): string {
   const customEnabled = db.getSetting('custom_api_enabled', 'false') === 'true';
   const customUrl = db.getSetting('custom_api_base_url', '').trim();
   return customEnabled && customUrl ? customUrl : DEFAULT_API_BASE_URL;
+}
+
+function getManagedCategoryNames(db: DatabaseService): string[] {
+  const managed = db.getSetting('managed_categories', '');
+  try {
+    if (managed) return normalizeManagedCategories(JSON.parse(managed));
+    const legacy = db.getSetting('custom_categories', '[]');
+    return normalizeManagedCategories([...CATEGORIES, ...JSON.parse(legacy)]);
+  } catch {
+    return normalizeManagedCategories([]);
+  }
 }
 
 function getVisionModel(db: DatabaseService): string {
@@ -526,7 +541,7 @@ async function runVisionCaptureCycle(db: DatabaseService, mainWindow: BrowserWin
     if (visionTimer === null || runToken !== visionAutoRunToken) return;
 
     const previousSegment = getPreviousVisionSegmentContext(db);
-    const result = await analyzeWithVision(apiKey, model, base64, ctxApp, ctxTitle, windowTraceText, previousSegment, abortController.signal, getApiBaseUrl(db));
+    const result = await analyzeWithVision(apiKey, model, base64, ctxApp, ctxTitle, windowTraceText, previousSegment, abortController.signal, getApiBaseUrl(db), getManagedCategoryNames(db), db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN');
     if (visionTimer === null || runToken !== visionAutoRunToken) return;
     const latestIdleSeconds = getSystemIdleSeconds();
     if (latestIdleSeconds >= IDLE_THRESHOLD_SECONDS) {
@@ -668,6 +683,17 @@ function scheduleChatCompaction(
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.MEMORY_UPDATED);
   }
+  let settled = false;
+  const leaseTimer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    const retry = db.failChatCompaction(batch.id, new Error('整理器超过 10 分钟未完成，已自动释放。'));
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.MEMORY_UPDATED);
+    }
+    if (retry.nextRetryAt) scheduleChatCompactionRetry(db, params, retry.nextRetryAt);
+  }, 10 * 60 * 1000);
+
   void (async () => {
     const toolPass = await runChatCompactionToolPass(db, { ...params, batch });
     const result = await compactChatMemory(params.apiKey, params.model, {
@@ -675,7 +701,9 @@ function scheduleChatCompaction(
       messages: batch.messages,
       retrievedMemoryIndex: toolPass.residentIndex,
       retrievedDetails: toolPass.retrievedDetails,
+      realtimeExtractedMessageIds: db.listRealtimeExtractedMessageIds(batch.messages.map((message) => message.id)),
     }, params.apiBaseUrl);
+    if (settled) return;
     db.completeChatCompaction(batch.id, {
       conversationSummary: result.conversation_summary,
       events: result.events,
@@ -683,13 +711,79 @@ function scheduleChatCompaction(
       calls: toolPass.calls,
       residentMemory: toolPass.residentMemory,
     });
+    settled = true;
+    clearTimeout(leaseTimer);
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.MEMORY_UPDATED);
     }
+    scheduleChatCompaction(db, params);
   })().catch((error) => {
-    db.failChatCompaction(batch.id, error);
+    if (settled) return;
+    settled = true;
+    clearTimeout(leaseTimer);
+    const retry = db.failChatCompaction(batch.id, error);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.MEMORY_UPDATED);
+    }
+    if (retry.nextRetryAt) scheduleChatCompactionRetry(db, params, retry.nextRetryAt);
     console.warn('[Memory] Chat compaction failed:', error);
   });
+}
+
+function scheduleChatCompactionRetry(
+  db: DatabaseService,
+  params: { apiKey: string; model: string; apiBaseUrl: string },
+  retryAt: string,
+): void {
+  if (chatCompactionRetryTimer) clearTimeout(chatCompactionRetryTimer);
+  const retryAtDate = parseUtcStorageDateTime(retryAt);
+  const delayMs = Math.max(0, (retryAtDate?.getTime() || Date.now()) - Date.now());
+  chatCompactionRetryTimer = setTimeout(() => {
+    chatCompactionRetryTimer = null;
+    scheduleChatCompaction(db, params);
+  }, delayMs);
+}
+
+function resumeChatCompactionQueue(db: DatabaseService): void {
+  const apiKey = getApiKey(db);
+  if (!apiKey) return;
+  scheduleChatCompaction(db, {
+    apiKey,
+    model: getChatModel(db),
+    apiBaseUrl: getApiBaseUrl(db),
+  });
+}
+
+/** 回复已落库后异步执行；未命中词表时不产生任何模型调用。 */
+function scheduleRealtimeMemoryExtraction(
+  db: DatabaseService,
+  persisted: { userMessageId?: string; turn: number },
+  userMessage: string
+): void {
+  const criticality = matchRealtimeMemoryCriticality(userMessage);
+  if (!criticality || !persisted.userMessageId) return;
+  if (!db.claimRealtimeMemoryExtraction(persisted.userMessageId, criticality)) return;
+  const apiKey = getApiKey(db);
+  if (!apiKey) {
+    db.failRealtimeMemoryExtraction(persisted.userMessageId);
+    return;
+  }
+  void extractRealtimeMemoryEvent(apiKey, getChatModel(db), userMessage, getApiBaseUrl(db))
+    .then(({ event }) => {
+      const eventIds = event
+        ? db.createMemoryEvents([{ ...event, criticality, confidence: 0.95 }], [persisted.userMessageId!], persisted.turn, userMessage)
+        : [];
+      db.finishRealtimeMemoryExtraction(persisted.userMessageId!, eventIds);
+      if (eventIds.length > 0) {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.MEMORY_UPDATED);
+        }
+      }
+    })
+    .catch((error) => {
+      db.failRealtimeMemoryExtraction(persisted.userMessageId!);
+      console.warn('[Memory] Realtime extraction failed:', error);
+    });
 }
 
 interface PendingMemoryProposal {
@@ -705,6 +799,7 @@ interface MemoryToolPassResult {
   proposals: PendingMemoryProposal[];
   reply: string | null;
   calls: MemoryToolDebugCall[];
+  fallbackContext: string;
   fallbackReason?: string;
 }
 
@@ -720,6 +815,58 @@ function compactEventIndex(events: ReturnType<DatabaseService['findMemoryEventsF
 
 function compactElementIndex(elements: ReturnType<DatabaseService['findMemoryElementsForChat']>): string {
   return elements.map((element) => `[${element.id}] ${element.name}｜${element.type}｜${element.current_state || '未形成稳定状态'}｜关联 ${element.event_count} 个事件`).join('\n');
+}
+
+function getToolDateRange(arguments_: Record<string, unknown>): { start: string; end: string } | { error: string } {
+  const start = typeof arguments_.start_date === 'string' ? arguments_.start_date.trim() : '';
+  const end = typeof arguments_.end_date === 'string' ? arguments_.end_date.trim() : '';
+  const isDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  };
+  if (!isDate(start) || !isDate(end) || start > end) return { error: 'start_date 和 end_date 必须是顺序正确的 YYYY-MM-DD 本地日期' };
+  const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000;
+  if (days > 31) return { error: '单次最多查询 31 天，请缩小日期范围' };
+  return { start, end };
+}
+
+function getToolLimit(arguments_: Record<string, unknown>): number {
+  return Math.max(1, Math.min(40, Math.floor(Number(arguments_.limit) || 20)));
+}
+
+function getToolQuery(arguments_: Record<string, unknown>): string | undefined {
+  const query = typeof arguments_.query === 'string' ? arguments_.query.trim().slice(0, 200) : '';
+  return query || undefined;
+}
+
+function formatVisionResultsForTool(results: ReturnType<DatabaseService['listVisionResultsByDate']>): Array<Record<string, unknown>> {
+  return results.slice().reverse().map((item) => ({
+    id: item.id,
+    at: formatUtcStorageDateTimeLocal(item.created_at),
+    title: item.title,
+    category: item.category,
+    activity_type: item.activity_type || 'unclear',
+    confidence: item.confidence || 'medium',
+    observed_fact: item.observed_fact || '',
+    possible_activity: item.possible_activity || item.summary,
+    app: item.app,
+    window_title: item.window_title,
+  }));
+}
+
+function formatRecordsForTool(records: ReturnType<DatabaseService['listRecords']>): Array<Record<string, unknown>> {
+  return records.slice().reverse().map((item) => ({
+    id: item.id,
+    start_at: formatUtcStorageDateTimeLocal(item.start_at),
+    end_at: formatUtcStorageDateTimeLocal(item.end_at),
+    title: item.title,
+    category: item.category,
+    app: item.app,
+    window_title: item.window_title,
+    notes: item.notes,
+    source: item.source,
+  }));
 }
 
 function expandEventForTool(db: DatabaseService, id: string, level: number): Record<string, unknown> | undefined {
@@ -766,6 +913,7 @@ async function runMemoryToolPass(
   const accessibleElementIds = new Set(params.memoryContext.retrievedElementIds);
   const proposals: PendingMemoryProposal[] = [];
   const toolTranscript: Array<Record<string, unknown>> = [];
+  const fallbackContextParts: string[] = [];
   const debugCalls: MemoryToolDebugCall[] = [];
   params.sourceMessages.forEach((message) => sourceById.set(message.id, message));
 
@@ -789,6 +937,7 @@ async function runMemoryToolPass(
         proposals: [],
         reply: null,
         calls: debugCalls,
+        fallbackContext: fallbackContextParts.join('\n\n'),
         fallbackReason: turn.error || '模型服务未返回兼容的工具调用响应，本轮回退为普通聊天。',
       };
     }
@@ -800,11 +949,14 @@ async function runMemoryToolPass(
         proposals,
         reply: turn.content.trim() || '嗯……我刚刚没想出合适的话。你再问我一次？',
         calls: debugCalls,
+        fallbackContext: fallbackContextParts.join('\n\n'),
       };
     }
 
-    params.onStatus?.(turn.calls.some((call) => call.name === 'search_events' || call.name === 'search_elements')
-      ? '正在翻翻以前的记忆…'
+    params.onStatus?.(turn.calls.some((call) => call.name === 'search_vision_results' || call.name === 'search_records')
+      ? '正在翻翻之前的记录…'
+      : turn.calls.some((call) => call.name === 'search_events' || call.name === 'search_elements')
+        ? '正在翻翻以前的记忆…'
       : turn.calls.some((call) => call.name === 'expand_event' || call.name === 'expand_element')
         ? '正在看看那段回忆的细节…'
         : '正在整理刚才想起来的内容…');
@@ -814,14 +966,17 @@ async function runMemoryToolPass(
       const output = executeMemoryToolCall(db, call, { sourceById, accessibleEventIds, accessibleElementIds, proposals });
       outputs.push({ call, output });
       debugCalls.push({ name: call.name, arguments: call.arguments, result: output });
+      fallbackContextParts.push(`${call.name}:\n${JSON.stringify(output)}`);
     }
     toolTranscript.push({
       role: 'assistant', content: null,
       tool_calls: calls.map((call) => ({ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.arguments) } })),
     });
     outputs.forEach(({ call, output }) => toolTranscript.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(output) }));
-    params.onStatus?.(turn.calls.some((call) => call.name === 'search_events' || call.name === 'search_elements')
-      ? '找到一些相关回忆，继续想想…'
+    params.onStatus?.(turn.calls.some((call) => call.name === 'search_vision_results' || call.name === 'search_records')
+      ? '找到一些以前的记录，继续想想…'
+      : turn.calls.some((call) => call.name === 'search_events' || call.name === 'search_elements')
+        ? '找到一些相关回忆，继续想想…'
       : '我想好了，正在组织一下…');
   }
 }
@@ -871,6 +1026,34 @@ function executeMemoryToolCall(
     if (!state.accessibleElementIds.has(id)) return { ok: false, error: '只能展开本轮已检索到的元素卡' };
     const element = expandElementForTool(db, id, level);
     return element ? { ok: true, element } : { ok: false, error: '元素卡不存在' };
+  }
+  if (call.name === 'search_vision_results') {
+    const range = getToolDateRange(call.arguments);
+    if ('error' in range) return { ok: false, error: range.error };
+    const limit = getToolLimit(call.arguments);
+    const results = db.listVisionResultsByDate({ start: range.start, end: range.end, q: getToolQuery(call.arguments), limit: limit + 1 });
+    return {
+      ok: true,
+      source: 'vision_results',
+      date_range: range,
+      returned: Math.min(results.length, limit),
+      truncated: results.length > limit,
+      results: formatVisionResultsForTool(results.slice(0, limit)),
+    };
+  }
+  if (call.name === 'search_records') {
+    const range = getToolDateRange(call.arguments);
+    if ('error' in range) return { ok: false, error: range.error };
+    const limit = getToolLimit(call.arguments);
+    const records = db.listRecords({ start: range.start, end: range.end, q: getToolQuery(call.arguments), limit: limit + 1 });
+    return {
+      ok: true,
+      source: 'records',
+      date_range: range,
+      returned: Math.min(records.length, limit),
+      truncated: records.length > limit,
+      records: formatRecordsForTool(records.slice(0, limit)),
+    };
   }
   if (call.name === 'propose_memory') {
     const sourceMessageIds = asStringArray(call.arguments.source_message_ids, 12);
@@ -994,6 +1177,8 @@ function trySendOpenGreeting(db: DatabaseService): void {
 
 export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWindow): void {
   startProactiveTimer(db);
+  // 启动后继续被异常中断的整理队列；过期 processing 已在数据库初始化时释放。
+  setTimeout(() => resumeChatCompactionQueue(db), 0);
 
   // ===== 看图问鸭 =====
   ipcMain.handle(IPC_CHANNELS.DESK_PET_SCREEN_QUESTION_START, async (event) => {
@@ -1153,6 +1338,12 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
     db.updateRecordCategory(id, cat);
   });
 
+  ipcMain.handle(IPC_CHANNELS.CATEGORIES_SAVE, (_e, payload: { categories: string[]; renames?: Array<{ from: string; to: string }> }) => {
+    const categories = normalizeManagedCategories(payload?.categories);
+    db.saveManagedCategories(categories, payload?.renames || []);
+    return categories;
+  });
+
   // ===== Reports =====
   ipcMain.handle(IPC_CHANNELS.REPORTS_LIST, (_e, query: ReportsQuery) => {
     return db.listReports(query);
@@ -1182,7 +1373,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
     setDeskPetState('thinking');
     let completed = false;
     try {
-      const { report_type, template, start_date, end_date } = params;
+      const { report_type, template, start_date, end_date, custom_prompt } = params;
       const apiKey = getApiKey(db);
       const model = getReportModel(db);
 
@@ -1212,6 +1403,8 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
         reportType: report_type,
         startDate: start_date,
         endDate: end_date,
+        language: db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN',
+        customPrompt: typeof custom_prompt === 'string' ? custom_prompt : '',
       }, getApiBaseUrl(db));
 
       const id = db.createReport({
@@ -1239,6 +1432,10 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET, (_e, key: string, value: string) => {
     db.setSetting(key, value);
+    if (key === 'language') {
+      updateTrayLanguage(value === 'en-US' ? 'en-US' : 'zh-CN');
+      refreshDeskPetLanguage();
+    }
     if (key === 'desk_pet_enabled') {
       setDeskPetEnabled(value === 'true');
       syncDeskPetWorkflowState();
@@ -1316,7 +1513,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       const windowTraceText = buildRecentWindowTraceText(visionAutoIntervalMinutes);
 
       const previousSegment = getPreviousVisionSegmentContext(db);
-      const result = await analyzeWithVision(apiKey, model, base64, ctxApp, ctxTitle, windowTraceText, previousSegment, undefined, getApiBaseUrl(db));
+      const result = await analyzeWithVision(apiKey, model, base64, ctxApp, ctxTitle, windowTraceText, previousSegment, undefined, getApiBaseUrl(db), getManagedCategoryNames(db), db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN');
       const id = db.addVisionResult({
         record_id: '',
         title: result.title,
@@ -1403,6 +1600,16 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
   ipcMain.handle(IPC_CHANNELS.MEMORY_TOOL_DEBUG_LIST, (_event, limit?: number) => db.listMemoryToolDebugRuns(limit));
   ipcMain.handle(IPC_CHANNELS.MEMORY_TOOL_DEBUG_GET_BY_ASSISTANT_MESSAGE, (_event, assistantMessageId: string) => db.getMemoryToolDebugRunByAssistantMessageId(assistantMessageId));
   ipcMain.handle(IPC_CHANNELS.MEMORY_CHAT_RUNTIME_DEBUG, () => db.getChatMemoryRuntimeDebug());
+  ipcMain.handle(IPC_CHANNELS.MEMORY_CHAT_COMPACTION_RETRY, (_event, id: string) => {
+    const queued = db.retryChatCompaction(id);
+    if (queued) {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.MEMORY_UPDATED);
+      }
+      resumeChatCompactionQueue(db);
+    }
+    return queued;
+  });
 
   // ===== Chat =====
   ipcMain.handle(IPC_CHANNELS.CHAT_MESSAGES_LIST, (_event, query?: ChatMessagesQuery) => {
@@ -1458,6 +1665,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       if (localReply) {
         chatStreamAbortControllers.delete(streamId);
         const persisted = tryAddCompletedChatTurn(db, persistedUserMessageId, localReply);
+        if (persisted && latestUserMessage) scheduleRealtimeMemoryExtraction(db, persisted, latestUserMessage.content);
         sendDeskPetChatMirrorEvent(sender, { streamId, type: 'delta', content: localReply });
         sendDeskPetChatMirrorEvent(sender, { streamId, type: 'done', messageId: persisted?.assistantMessageId });
         sendLocalChatReply(sender, streamId, localReply);
@@ -1490,7 +1698,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
       sendToChatSender(sender, IPC_CHANNELS.CHAT_STREAM_DELTA, { streamId, type: 'status', delta: status });
     };
     sendChatStatus('小黄鸭在想…');
-    let memoryToolPass: MemoryToolPassResult = { toolMode: false, usedEventIds: [], usedElementIds: [], proposals: [], reply: null, calls: [], fallbackReason: '工具聊天尚未完成，本轮回退为普通聊天。' };
+    let memoryToolPass: MemoryToolPassResult = { toolMode: false, usedEventIds: [], usedElementIds: [], proposals: [], reply: null, calls: [], fallbackContext: '', fallbackReason: '工具聊天尚未完成，本轮回退为普通聊天。' };
     try {
       memoryToolPass = await runMemoryToolPass(db, {
         apiKey,
@@ -1520,8 +1728,8 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
         apiKey,
         chatModel,
         modelMessages,
-        // 工具协议失败时宁可只依据当前聊天，也不能让回退回复悄悄使用未声明的长期记忆。
-        memoryToolPass.toolMode ? memoryContext.text : '',
+        // 已执行的工具结果不因最终协议失败而丢弃；工具 role 协议本身不重放给普通聊天模型。
+        memoryToolPass.toolMode ? memoryContext.text : memoryToolPass.fallbackContext,
         (event) => {
           if (event.type === 'content') {
             markFirstResponse();
@@ -1534,7 +1742,9 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
           sendChatStatus('小黄鸭在想…');
         },
         abortController.signal,
-        apiBaseUrl
+        apiBaseUrl,
+        {},
+        db.getSetting('language', 'zh-CN') === 'en-US' ? 'en-US' : 'zh-CN'
       );
 
     completeReply
@@ -1571,6 +1781,7 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
           }
         }
         if (persisted) {
+          if (latestUserMessage) scheduleRealtimeMemoryExtraction(db, persisted, latestUserMessage.content);
           scheduleChatCompaction(db, {
             apiKey,
             model: chatModel,
@@ -1615,8 +1826,8 @@ export function registerIpcHandlers(db: DatabaseService, mainWindow: BrowserWind
   });
 
   // ===== Export/Import =====
-  ipcMain.handle(IPC_CHANNELS.EXPORT_JSON, () => {
-    return db.exportAll();
+  ipcMain.handle(IPC_CHANNELS.EXPORT_JSON, (_e, options?: ExportJsonOptions) => {
+    return db.exportAll(options);
   });
 
   ipcMain.handle(IPC_CHANNELS.IMPORT_JSON, (_e, data: any) => {

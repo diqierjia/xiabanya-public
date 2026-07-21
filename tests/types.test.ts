@@ -3,6 +3,7 @@ import {
   CATEGORIES,
   CATEGORY_COLORS,
   DEFAULT_SETTINGS,
+  normalizeManagedCategories,
   TEMPLATES,
 } from '../src/shared/types';
 
@@ -32,6 +33,10 @@ describe('CATEGORIES', () => {
     for (const cat of CATEGORIES) {
       expect(typeof cat).toBe('string');
     }
+  });
+
+  it('normalizes managed categories and keeps the fallback last', () => {
+    expect(normalizeManagedCategories([{ name: '编程' }, '阅读', '编程', '其他'])).toEqual(['编程', '阅读', '其他']);
   });
 });
 
@@ -65,13 +70,14 @@ describe('CATEGORY_COLORS', () => {
 
 // ===== DEFAULT_SETTINGS =====
 describe('DEFAULT_SETTINGS', () => {
-  it('has all 12 required fields', () => {
+  it('has all 13 required fields', () => {
     const keys = Object.keys(DEFAULT_SETTINGS);
-    expect(keys).toHaveLength(12);
+    expect(keys).toHaveLength(13);
   });
 
   it('has correct field names', () => {
     const expectedKeys = [
+      'language',
       'siliconflow_api_key',
       'custom_api_enabled',
       'custom_api_base_url',
@@ -92,6 +98,10 @@ describe('DEFAULT_SETTINGS', () => {
 
   it('siliconflow_api_key defaults to empty string', () => {
     expect(DEFAULT_SETTINGS.siliconflow_api_key).toBe('');
+  });
+
+  it('defaults the interface language to Simplified Chinese', () => {
+    expect(DEFAULT_SETTINGS.language).toBe('zh-CN');
   });
 
   it('custom API defaults to disabled', () => {
@@ -124,6 +134,7 @@ describe('DEFAULT_SETTINGS', () => {
   });
 
   it('all values have correct types', () => {
+    expect(typeof DEFAULT_SETTINGS.language).toBe('string');
     expect(typeof DEFAULT_SETTINGS.siliconflow_api_key).toBe('string');
     expect(typeof DEFAULT_SETTINGS.custom_api_enabled).toBe('boolean');
     expect(typeof DEFAULT_SETTINGS.custom_api_base_url).toBe('string');

@@ -3,43 +3,42 @@ import {
   Clock,
   FileText,
   LayoutDashboard,
-  Lightbulb,
   MemoryStick,
   ScrollText,
   Settings,
 } from 'lucide-react';
 import type { PageKey } from '../App';
 import logoImg from '../assets/xiabanya-logo.svg';
+import { useTranslation } from '../i18n';
 
 interface SidebarProps {
   currentPage: PageKey;
   onNavigate: (page: PageKey) => void;
 }
 
-const NAV_ITEMS: { key: PageKey; label: string; icon: React.ElementType }[] = [
-  { key: 'today', label: 'Today', icon: LayoutDashboard },
-  { key: 'ai', label: 'AI 小黄鸭', icon: Bot },
-  { key: 'timeline', label: 'Timeline', icon: Clock },
-  { key: 'records', label: '记录', icon: ScrollText },
-  { key: 'memory', label: 'Memory', icon: MemoryStick },
-  { key: 'review', label: 'Review', icon: FileText },
-  { key: 'insights', label: 'Insights', icon: Lightbulb },
-];
-
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
+  const { language, t } = useTranslation();
+  const navItems: { key: PageKey; label: string; icon: React.ElementType }[] = [
+    { key: 'today', label: t('today'), icon: LayoutDashboard },
+    { key: 'ai', label: t('ai'), icon: Bot },
+    { key: 'timeline', label: t('timeline'), icon: Clock },
+    { key: 'records', label: t('records'), icon: ScrollText },
+    { key: 'memory', label: t('memory'), icon: MemoryStick },
+    { key: 'review', label: t('review'), icon: FileText },
+  ];
   return (
     <aside className="w-[208px] bg-gray-900 text-gray-300 flex flex-col shrink-0">
       {/* Brand Logo */}
       <div className="h-16 flex items-center px-4 border-b border-gray-700 gap-3">
         <div className="w-12 h-12 flex items-center justify-center p-0 border-0 bg-transparent shrink-0">
-          <img src={logoImg} alt="下班鸭" className="w-full h-full object-contain" />
+          <img src={logoImg} alt={t('ai')} className="w-full h-full object-contain" />
         </div>
-        <span className="text-xl font-bold text-brand-400">下班鸭</span>
+        <span className="text-xl font-bold text-brand-400">{language === 'en-US' ? 'Xiabanya' : '下班鸭'}</span>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 py-3 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const active = currentPage === item.key;
           return (
@@ -70,9 +69,9 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           }`}
         >
           <Settings size={18} />
-          <span>设置</span>
+          <span>{t('settings')}</span>
         </button>
-        <span className="text-xs text-gray-600">v2.6.2</span>
+        <span className="text-xs text-gray-600">v2.6.3 · {language === 'zh-CN' ? '中文' : 'EN'}</span>
       </div>
     </aside>
   );

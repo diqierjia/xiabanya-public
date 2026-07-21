@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
   SETTINGS_SET: 'settings:set',
   SETTINGS_GET_ALL: 'settings:getAll',
   SETTINGS_GET_API_KEY: 'settings:getApiKey',
+  CATEGORIES_SAVE: 'categories:save',
 
   // 追踪
   TRACKER_START: 'tracker:start',
@@ -71,6 +72,7 @@ export const IPC_CHANNELS = {
   MEMORY_TOOL_DEBUG_LIST: 'memory:toolDebugList',
   MEMORY_TOOL_DEBUG_GET_BY_ASSISTANT_MESSAGE: 'memory:toolDebugGetByAssistantMessage',
   MEMORY_CHAT_RUNTIME_DEBUG: 'memory:chatRuntimeDebug',
+  MEMORY_CHAT_COMPACTION_RETRY: 'memory:chatCompactionRetry',
   MEMORY_UPDATED: 'memory:updated',
 
   // 桌宠

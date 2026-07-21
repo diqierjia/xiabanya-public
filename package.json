@@ -2,16 +2,6 @@
   "name": "xiabanya-electron",
   "version": "2.6.3",
   "description": "下班鸭 - 自动追踪屏幕活动、AI 截图识别、一键生成工作日报",
-  "license": "MIT",
-  "author": "diqier",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/diqierjia/xiabanya-public.git"
-  },
-  "bugs": {
-    "url": "https://github.com/diqierjia/xiabanya-public/issues"
-  },
-  "homepage": "https://github.com/diqierjia/xiabanya-public#readme",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

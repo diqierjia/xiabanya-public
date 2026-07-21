@@ -7,7 +7,7 @@ interface ReportsState {
   loading: boolean;
   generating: boolean;
   fetchReports: (query?: ReportsQuery) => Promise<void>;
-  generate: (params: { report_type: string; template: string; start_date: string; end_date: string }) => Promise<Report | null>;
+  generate: (params: { report_type: string; template: string; start_date: string; end_date: string; custom_prompt?: string }) => Promise<Report | null>;
   updateReport: (id: string, content: string) => Promise<Report>;
   deleteReport: (id: string) => Promise<void>;
 }
